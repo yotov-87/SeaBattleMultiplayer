@@ -1,6 +1,6 @@
 // ─── Variables ────────────────────────────────────────────────────────────────
-$cell:   36px;
-$gap:    2px;
+$cell:    36px;   // enemy board (fixed)
+$gap:     2px;
 $bg:     #0a1628;
 $surf:   #0d1f3c;
 $surf2:  #132237;
@@ -110,6 +110,37 @@ $accent: #5dade2;
   text-align: center;
 }
 
+.board-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.zoom-controls {
+  display: flex;
+  gap: 3px;
+}
+
+.zoom-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid $border;
+  background: $surf2;
+  color: $text;
+  font-size: .85rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .12s;
+
+  &:hover:not(:disabled) { background: #1a3a5a; }
+  &:disabled { opacity: .35; cursor: default; }
+}
+
 .grid-area {
   border: 2px solid $border;
   border-radius: 6px;
@@ -162,50 +193,65 @@ $accent: #5dade2;
   font-size: 17px;
   transition: background .1s, transform .1s;
 
-  // ── My board ────────────────────────────────
-  &.cell-ship {
-    background: #2e4053;
-    border-color: #4a6278;
-  }
-
-  &.cell-hit-on-me {
-    background: #7b241c;
-    border-color: #e74c3c;
-    &::after { content: '✕'; position: absolute; color: #f1948a; }
-  }
-
-  &.cell-sunk-on-me {
-    background: #641010;
-    border-color: #e74c3c;
-    &::after { content: '✕'; position: absolute; color: #f5b7b1; }
-  }
-
-  &.cell-miss-on-me {
-    background: #0e2233;
-    &::after { content: '·'; position: absolute; font-size: 26px; line-height: 1; color: #85c1e9; }
-  }
-
-  // ── Enemy board ─────────────────────────────
+  // ── Enemy board states ───────────────────────
   &.cell-unknown { background: #0a1a2a; }
 
   &.cell-miss {
-    background: #0e2233;
-    &::after { content: '·'; position: absolute; font-size: 26px; line-height: 1; color: #85c1e9; }
+    background: #0c1e30;
+    &::after { content: '·'; position: absolute; font-size: 24px; line-height: 1; color: #4a6a88; }
   }
 
+  // Enemy hit → green X
+  &.cell-hit {
+    background: #145a32;
+    border-color: #27ae60;
+    &::after { content: '✕'; position: absolute; font-size: 15px; font-weight: 700; color: #82e0aa; }
+  }
+
+  // Enemy sunk → deep green X
   &.cell-sunk {
-    background: #641010;
-    border-color: #e74c3c;
-    &::after { content: '✕'; position: absolute; color: #f5b7b1; }
+    background: #0b3d20;
+    border-color: #1e8449;
+    &::after { content: '✕'; position: absolute; font-size: 15px; font-weight: 700; color: #abebc6; }
   }
 }
 
-// Enemy hit (different look from "hit on me")
-.enemy-cell.cell-hit {
-  background: #a04000;
-  border-color: #e67e22;
-  &::after { content: '💥'; position: absolute; font-size: 15px; }
+// ── My board — minimalistic, zoomable via --cell-me CSS variable ───────────────
+.my-board .grid-cell {
+  width:  var(--cell-me, 16px);
+  height: var(--cell-me, 16px);
+  font-size: 12px;
+  border-color: #0f2030;
+
+  &.cell-ship {
+    background: #1e3248;
+    border-color: #2a4a6a;
+  }
+
+  // Hit on me → red X
+  &.cell-hit-on-me {
+    background: #c0392b;
+    border-color: #e74c3c;
+    &::after { content: '✕'; position: absolute; font-size: 11px; font-weight: 700; color: #fadbd8; }
+  }
+
+  // Sunk on me → deep red X
+  &.cell-sunk-on-me {
+    background: #922b21;
+    border-color: #c0392b;
+    &::after { content: '✕'; position: absolute; font-size: 11px; font-weight: 700; color: #f2d7d5; }
+  }
+
+  &.cell-miss-on-me {
+    background: #0c1e30;
+    &::after { content: '·'; position: absolute; font-size: 18px; line-height: 1; color: #2e5878; }
+  }
 }
+
+// Adjust my-board labels to match dynamic cell size
+.my-board .grid-col-labels span { width: var(--cell-me, 16px); }
+.my-board .row-label            { width: var(--cell-me, 16px); }
+.my-board .grid-col-labels      { padding-left: calc(var(--cell-me, 16px) + #{$gap}); }
 
 .clickable {
   cursor: crosshair;

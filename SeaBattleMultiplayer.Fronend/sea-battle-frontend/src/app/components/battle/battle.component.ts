@@ -28,7 +28,15 @@ export class BattleComponent implements OnInit, OnDestroy {
 
   chatInput     = '';
   autoShot      = false;
-  selectedTarget = signal<number | null>(null);
+  selectedTarget  = signal<number | null>(null);
+  myBoardCellSize = signal(16); // px — default small, user can zoom
+
+  readonly MIN_CELL = 10;
+  readonly MAX_CELL = 36;
+
+  zoomMyBoard(delta: number): void {
+    this.myBoardCellSize.update(v => Math.min(this.MAX_CELL, Math.max(this.MIN_CELL, v + delta)));
+  }
 
   // 15-second turn timer (UI only — enforcement is on backend)
   turnTimeLeft = signal(15);

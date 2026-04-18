@@ -36,8 +36,14 @@
 
     <!-- MY BOARD -->
     <section class="board-section">
-      <h2 class="board-title">My Fleet</h2>
-      <div class="grid-area">
+      <div class="board-title-row">
+        <h2 class="board-title">My Fleet</h2>
+        <div class="zoom-controls">
+          <button class="zoom-btn" (click)="zoomMyBoard(-2)" [disabled]="myBoardCellSize() <= MIN_CELL">−</button>
+          <button class="zoom-btn" (click)="zoomMyBoard(2)"  [disabled]="myBoardCellSize() >= MAX_CELL">+</button>
+        </div>
+      </div>
+      <div class="grid-area my-board" [style.--cell-me.px]="myBoardCellSize()">
         <div class="grid-col-labels">
           <span></span>
           @for (c of COLS; track c) { <span>{{ c + 1 }}</span> }
@@ -48,8 +54,8 @@
             @for (c of COLS; track c) {
               <div class="grid-cell"
                 [class.cell-ship]="myBoard()[r][c] === 'ship'"
-                [class.cell-hit]="myBoard()[r][c] === 'hit-on-me'"
-                [class.cell-sunk]="myBoard()[r][c] === 'sunk-on-me'"
+                [class.cell-hit-on-me]="myBoard()[r][c] === 'hit-on-me'"
+                [class.cell-sunk-on-me]="myBoard()[r][c] === 'sunk-on-me'"
                 [class.cell-miss-on-me]="myBoard()[r][c] === 'miss-on-me'"
               ></div>
             }
