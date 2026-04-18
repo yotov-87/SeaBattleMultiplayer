@@ -1,43 +1,101 @@
 <div class="placement-page">
 
-  <div class="placement-header">
-    <h1>Place Your Ships</h1>
+  <!-- ── Top bar ──────────────────────────────────────────────────────── -->
+  <div class="top-bar">
+    <h1 class="page-title">Place Your Ships</h1>
+
     <div class="timer" [class.urgent]="timeLeft() <= 10">
-      {{ timeLeft() }}<span class="timer-unit">s</span>
+      <span class="timer-value">{{ timeLeft() }}</span>
+      <span class="timer-unit">s</span>
+    </div>
+
+    <div class="top-actions">
+      <button class="btn btn-rotate" (click)="rotate()">
+        🔄 {{ isHorizontal() ? 'Horizontal' : 'Vertical' }}
+      </button>
+      <button class="btn btn-clear" (click)="clearAll()">🗑 Clear All</button>
     </div>
   </div>
 
-  <div class="placement-body">
-    <div class="grid-wrapper">
+  <!-- ── Main layout ──────────────────────────────────────────────────── -->
+  <div class="placement-layout">
+
+    <!-- Fleet palette -->
+    <aside class="palette">
+      <h2 class="palette-title">Your Fleet</h2>
+      <p class="palette-hint">Click to select · right-click grid to rotate · click ship on board to remove</p>
+
+      @for (def of SHIP_DEFS; track def.size) {
+        @let remaining = remainingCounts().get(def.size) ?? 0;
+        <div
+          class="ship-card"
+          [class.selected]="selectedSize() === def.size"
+          [class.exhausted]="remaining === 0"
+          (click)="selectShip(def.size)"
+        >
+          <div class="ship-card-top">
+            <span class="ship-name">{{ def.emoji }} {{ def.label }}</span>
+            <span class="ship-count" [class.done]="remaining === 0">
+              {{ remaining }}/{{ def.count }}
+            </span>
+          </div>
+          <div class="ship-visual">
+            @for (_ of shipCells(def.size); track $index) {
+              <div class="ship-square"></div>
+            }
+          </div>
+        </div>
+      }
+    </aside>
+
+    <!-- Grid -->
+    <div class="grid-area">
+
+      <!-- Column numbers -->
       <div class="grid-col-labels">
         <span></span>
-        @for (c of cols; track c) {
+        @for (c of COLS; track c) {
           <span>{{ c + 1 }}</span>
         }
       </div>
 
-      @for (r of rows; track r) {
-        <div class="grid-row">
-          <span class="row-label">{{ 'ABCDEFGHIJ'[r] }}</span>
-          @for (c of cols; track c) {
-            <div class="grid-cell"></div>
-          }
-        </div>
-      }
-    </div>
+      <!-- Rows -->
+      <div class="grid-body" (contextmenu)="onGridRightClick($event)" (mouseleave)="onGridLeave()">
+        @for (r of ROWS; track r) {
+          <div class="grid-row">
+            <span class="row-label">{{ ROW_LABELS[r] }}</span>
+            @for (c of COLS; track c) {
+              <div
+                class="grid-cell"
+                [class.cell-ship]="cellStates()[r][c] === 'ship'"
+                [class.cell-preview-ok]="cellStates()[r][c] === 'preview-ok'"
+                [class.cell-preview-bad]="cellStates()[r][c] === 'preview-bad'"
+                (mouseenter)="onCellHover(r, c)"
+                (click)="onCellClick(r, c)"
+              ></div>
+            }
+          </div>
+        }
+      </div>
 
-    <p class="coming-soon">Ship placement will be available soon.</p>
+    </div>
   </div>
 
+  <!-- ── Footer ───────────────────────────────────────────────────────── -->
   <div class="placement-footer">
-    <button class="btn-ready" (click)="markReady()" [disabled]="isReady">
+    <button
+      class="btn-ready"
+      (click)="markReady()"
+      [disabled]="isReady || !allPlaced()"
+    >
       @if (isReady) {
-        Waiting for others…
+        ⏳ Waiting for others…
+      } @else if (!allPlaced()) {
+        Place all ships to continue
       } @else {
         ✔ I'm Ready!
       }
     </button>
-    <p class="hint">Game starts automatically when all players are ready or the timer runs out.</p>
   </div>
 
 </div>
