@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, tap } from 'rxjs';
 import { environment } from '../../environments/environment';
@@ -9,6 +9,12 @@ import { AuthRequest, AuthResponse } from '../models/auth.models';
 })
 export class AuthService {
   private readonly apiUrl = `${environment.apiUrl}/auth`;
+
+  private _token = signal<string | null>(localStorage.getItem('token'));
+  private _username = signal<string | null>(localStorage.getItem('username'));
+
+  readonly isLoggedIn = computed(() => !!this._token());
+  readonly username = computed(() => this._username());
 
   constructor(private http: HttpClient) {}
 
@@ -27,22 +33,18 @@ export class AuthService {
   logout(): void {
     localStorage.removeItem('token');
     localStorage.removeItem('username');
+    this._token.set(null);
+    this._username.set(null);
   }
 
   getToken(): string | null {
-    return localStorage.getItem('token');
-  }
-
-  getUsername(): string | null {
-    return localStorage.getItem('username');
-  }
-
-  isLoggedIn(): boolean {
-    return !!this.getToken();
+    return this._token();
   }
 
   private saveSession(res: AuthResponse): void {
     localStorage.setItem('token', res.token);
     localStorage.setItem('username', res.username);
+    this._token.set(res.token);
+    this._username.set(res.username);
   }
 }

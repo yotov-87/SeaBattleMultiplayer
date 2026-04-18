@@ -1,0 +1,10 @@
+<header class="app-header">
+  <a class="logo" routerLink="/home">⚓ Sea Battle</a>
+
+  @if (authService.isLoggedIn()) {
+    <div class="user-info">
+      <span class="username">{{ authService.username() }}</span>
+      <button class="logout-btn" (click)="logout()">Logout</button>
+    </div>
+  }
+</header>

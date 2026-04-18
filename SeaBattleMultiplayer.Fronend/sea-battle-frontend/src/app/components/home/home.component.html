@@ -1,0 +1,78 @@
+<!-- Game invite toast -->
+@if (invite()) {
+  <div class="invite-toast">
+    <span><strong>{{ invite()!.senderUsername }}</strong> invited you to a game!</span>
+    <div class="invite-actions">
+      <button class="btn-accept">Accept</button>
+      <button class="btn-decline" (click)="dismissInvite()">Decline</button>
+    </div>
+  </div>
+}
+
+<div class="dashboard">
+  <h1>Welcome, {{ authService.username() }}!</h1>
+
+  <div class="players-grid">
+    <!-- Online Players -->
+    <section class="player-section">
+      <h2 class="section-title online-title">
+        <span class="dot online-dot"></span> Online ({{ onlinePlayers().length }})
+      </h2>
+
+      @if (onlinePlayers().length === 0) {
+        <p class="empty-msg">No other players are online.</p>
+      }
+
+      @for (player of onlinePlayers(); track player.id) {
+        <div class="player-card online">
+          <div class="player-info">
+            <span class="status-dot online-dot"></span>
+            <span class="player-name">{{ player.username }}</span>
+            @if (player.isFriend) {
+              <span class="friend-badge">Friend</span>
+            }
+          </div>
+          <div class="player-actions">
+            @if (player.isFriend) {
+              <button class="btn btn-remove" (click)="removeFriend(player)">Remove Friend</button>
+            } @else {
+              <button class="btn btn-add" (click)="addFriend(player)">Add Friend</button>
+            }
+            <button class="btn btn-invite" (click)="inviteToGame(player)">Invite</button>
+          </div>
+        </div>
+      }
+    </section>
+
+    <!-- Offline Players -->
+    <section class="player-section">
+      <h2 class="section-title offline-title">
+        <span class="dot offline-dot"></span> Offline ({{ offlinePlayers().length }})
+      </h2>
+
+      @if (offlinePlayers().length === 0) {
+        <p class="empty-msg">No other registered players yet.</p>
+      }
+
+      @for (player of offlinePlayers(); track player.id) {
+        <div class="player-card offline">
+          <div class="player-info">
+            <span class="status-dot offline-dot"></span>
+            <span class="player-name">{{ player.username }}</span>
+            @if (player.isFriend) {
+              <span class="friend-badge">Friend</span>
+            }
+          </div>
+          <div class="player-actions">
+            @if (player.isFriend) {
+              <button class="btn btn-remove" (click)="removeFriend(player)">Remove Friend</button>
+            } @else {
+              <button class="btn btn-add" (click)="addFriend(player)">Add Friend</button>
+            }
+            <button class="btn btn-invite" disabled>Invite</button>
+          </div>
+        </div>
+      }
+    </section>
+  </div>
+</div>

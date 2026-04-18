@@ -1,0 +1,49 @@
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2rem;
+  height: 60px;
+  background: #1a1a2e;
+  border-bottom: 2px solid #0f3460;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+
+  .logo {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #e0e0e0;
+    text-decoration: none;
+    letter-spacing: 0.05em;
+
+    &:hover {
+      color: #fff;
+    }
+  }
+
+  .user-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+
+    .username {
+      color: #a8d8f0;
+      font-weight: 500;
+    }
+
+    .logout-btn {
+      padding: 0.4rem 1rem;
+      border: 1px solid #e74c3c;
+      border-radius: 6px;
+      background: transparent;
+      color: #e74c3c;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: background 0.2s, color 0.2s;
+
+      &:hover {
+        background: #e74c3c;
+        color: #fff;
+      }
+    }
+  }
+}
