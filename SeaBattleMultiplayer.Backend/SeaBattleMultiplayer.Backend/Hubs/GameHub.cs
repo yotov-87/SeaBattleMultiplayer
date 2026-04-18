@@ -195,7 +195,7 @@ public class GameHub : Hub
         {
             try
             {
-                await Task.Delay(25_000, cts.Token);
+                await Task.Delay(30_000, cts.Token);
                 await _hubContext.Clients.Group($"room-{roomId}").SendAsync("AllReady");
             }
             catch (OperationCanceledException) { /* all players readied before timer */ }

@@ -47,12 +47,21 @@ $red:         #e74c3c;
   align-items: baseline;
   gap: 2px;
   font-weight: 700;
-  color: $green;
+  color: $green; // default: green (30–16)
   transition: color 0.3s;
 
-  &.urgent {
-    color: $red;
+  &.blink-green {
+    color: $green;
     .timer-value { animation: pulse 0.8s infinite alternate; }
+  }
+
+  &.red {
+    color: $red;
+  }
+
+  &.blink-red {
+    color: $red;
+    .timer-value { animation: pulse 0.5s infinite alternate; }
   }
 
   .timer-value { font-size: 2.4rem; line-height: 1; }
@@ -84,6 +93,8 @@ $red:         #e74c3c;
 }
 
 .btn-rotate { min-width: 130px; text-align: center; }
+.btn-auto   { color: #f1c40f; border-color: #7d6608;
+  &:hover { background: #2a2208; border-color: #f1c40f; } }
 .btn-clear  { color: #e57373; border-color: #6b2020;
   &:hover { background: #3a1010; border-color: $red; } }
 

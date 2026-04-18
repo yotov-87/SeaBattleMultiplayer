@@ -34,7 +34,7 @@ export class PlacementComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
 
   // ── Timer ──────────────────────────────────────────────────────────────
-  timeLeft = signal(25);
+  timeLeft = signal(30);
   isReady = false;
   private countdownId: ReturnType<typeof setInterval> | null = null;
   private sub = new Subscription();
@@ -220,8 +220,80 @@ export class PlacementComponent implements OnInit, OnDestroy {
     this.selectedSize.set(null);
   }
 
+  autoPlace(): void {
+    // Keep already-placed ships, only fill in what's missing
+    const ships = [...this.placedShips()];
+
+    for (const def of SHIP_DEFS) {
+      const alreadyPlaced = ships.filter(s => s.size === def.size).length;
+      const toPlace = def.count - alreadyPlaced;
+
+      for (let n = 0; n < toPlace; n++) {
+        const placed = this.tryPlaceRandom(def.size, ships);
+        if (placed) ships.push(placed);
+      }
+    }
+
+    this.placedShips.set(ships);
+    this.selectedSize.set(null);
+  }
+
+  /** Attempts up to 200 random positions to place a ship of given size. */
+  private tryPlaceRandom(size: number, existing: PlacedShip[]): PlacedShip | null {
+    const occupied = this.buildOccupiedSet(existing);
+
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const horizontal = Math.random() < 0.5;
+      const maxR = horizontal ? 9 : 10 - size;
+      const maxC = horizontal ? 10 - size : 9;
+      const r = Math.floor(Math.random() * (maxR + 1));
+      const c = Math.floor(Math.random() * (maxC + 1));
+
+      const cells: { r: number; c: number }[] = [];
+      for (let i = 0; i < size; i++) {
+        cells.push({ r: horizontal ? r : r + i, c: horizontal ? c + i : c });
+      }
+
+      const cellKeys = new Set(cells.map(({ r, c }) => r * 10 + c));
+      let valid = true;
+
+      outer: for (const { r: cr, c: cc } of cells) {
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const nr = cr + dr, nc = cc + dc;
+            if (nr < 0 || nr >= 10 || nc < 0 || nc >= 10) continue;
+            const nkey = nr * 10 + nc;
+            if (occupied.has(nkey) && !cellKeys.has(nkey)) {
+              valid = false;
+              break outer;
+            }
+          }
+        }
+      }
+
+      if (valid) {
+        return { id: this.nextId++, size, row: r, col: c, horizontal };
+      }
+    }
+    return null;
+  }
+
+  /** Builds a Set of r*10+c keys from an array of ships (used for auto-place). */
+  private buildOccupiedSet(ships: PlacedShip[]): Set<number> {
+    const set = new Set<number>();
+    for (const ship of ships) {
+      for (let i = 0; i < ship.size; i++) {
+        const r = ship.horizontal ? ship.row     : ship.row + i;
+        const c = ship.horizontal ? ship.col + i : ship.col;
+        set.add(r * 10 + c);
+      }
+    }
+    return set;
+  }
+
   markReady(): void {
     if (this.isReady) return;
+    if (!this.allPlaced()) this.autoPlace();
     this.isReady = true;
     this.clearCountdown();
     this.signalR.playerReady();
