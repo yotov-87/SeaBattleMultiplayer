@@ -33,6 +33,9 @@ public class GameHub : Hub
         var userId = GetUserId();
         var username = GetUsername();
 
+        // Cancel any pending disconnect grace timer for this user (handles browser refresh)
+        _onlineUsers.CancelDisconnectGrace(userId);
+
         _onlineUsers.AddUser(userId, Context.ConnectionId);
         await Clients.Others.SendAsync("UserOnline", userId, username);
         await Clients.Caller.SendAsync("OnlineUsers", _onlineUsers.GetOnlineUserIds());
@@ -54,7 +57,20 @@ public class GameHub : Hub
         }
 
         _onlineUsers.RemoveUser(userId);
-        await Clients.Others.SendAsync("UserOffline", userId);
+
+        // Grace period: wait 3s before broadcasting UserOffline.
+        // If the user refreshed the browser they will reconnect within this window
+        // and CancelDisconnectGrace will abort the broadcast, preventing UI flicker.
+        var cts = _onlineUsers.StartDisconnectGrace(userId);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(3000, cts.Token);
+                await _hubContext.Clients.All.SendAsync("UserOffline", userId);
+            }
+            catch (OperationCanceledException) { /* user reconnected in time — no broadcast needed */ }
+        });
 
         await base.OnDisconnectedAsync(exception);
     }

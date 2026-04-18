@@ -21,6 +21,9 @@ public class OnlineUsersService
     // roomId → placement timer cancellation token
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _placementTimers = new();
 
+    // userId → disconnect grace timer (delays UserOffline broadcast on browser refresh)
+    private readonly ConcurrentDictionary<int, CancellationTokenSource> _disconnectTimers = new();
+
     // ── Connection management ──────────────────────────────────────────────
 
     public void AddUser(int userId, string connectionId) =>
@@ -28,6 +31,22 @@ public class OnlineUsersService
 
     public void RemoveUser(int userId) =>
         _connections.TryRemove(userId, out _);
+
+    /// <summary>Starts a 3-second grace period. Returns the CTS for the caller to await.
+    /// Call CancelDisconnectGrace on reconnect to abort.</summary>
+    public CancellationTokenSource StartDisconnectGrace(int userId)
+    {
+        if (_disconnectTimers.TryRemove(userId, out var old)) old.Cancel();
+        var cts = new CancellationTokenSource();
+        _disconnectTimers[userId] = cts;
+        return cts;
+    }
+
+    /// <summary>Cancels a pending disconnect grace period (user reconnected in time).</summary>
+    public void CancelDisconnectGrace(int userId)
+    {
+        if (_disconnectTimers.TryRemove(userId, out var cts)) cts.Cancel();
+    }
 
     public bool IsOnline(int userId) => _connections.ContainsKey(userId);
 
