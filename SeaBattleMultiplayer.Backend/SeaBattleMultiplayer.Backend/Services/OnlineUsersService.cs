@@ -12,6 +12,15 @@ public class OnlineUsersService
     // roomId → (userId → username)
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<int, string>> _rooms = new();
 
+    // roomId → hostUserId
+    private readonly ConcurrentDictionary<string, int> _roomHosts = new();
+
+    // roomId → set of ready userIds
+    private readonly ConcurrentDictionary<string, HashSet<int>> _readyPlayers = new();
+
+    // roomId → placement timer cancellation token
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _placementTimers = new();
+
     // ── Connection management ──────────────────────────────────────────────
 
     public void AddUser(int userId, string connectionId) =>
@@ -36,6 +45,7 @@ public class OnlineUsersService
         members[hostId] = hostUsername;
         _rooms[roomId] = members;
         _userRooms[hostId] = roomId;
+        _roomHosts[roomId] = hostId;
         return roomId;
     }
 
@@ -56,7 +66,13 @@ public class OnlineUsersService
         if (_rooms.TryGetValue(roomId, out var members))
         {
             members.TryRemove(userId, out _);
-            if (members.IsEmpty) _rooms.TryRemove(roomId, out _);
+            if (members.IsEmpty)
+            {
+                _rooms.TryRemove(roomId, out _);
+                _roomHosts.TryRemove(roomId, out _);
+                _readyPlayers.TryRemove(roomId, out _);
+                if (_placementTimers.TryRemove(roomId, out var cts)) cts.Cancel();
+            }
         }
         return roomId;
     }
@@ -64,10 +80,42 @@ public class OnlineUsersService
     public string? GetUserRoom(int userId) =>
         _userRooms.TryGetValue(userId, out var roomId) ? roomId : null;
 
+    public int? GetRoomHost(string roomId) =>
+        _roomHosts.TryGetValue(roomId, out var h) ? h : null;
+
     public IEnumerable<(int Id, string Username)> GetRoomMembers(string roomId)
     {
         if (_rooms.TryGetValue(roomId, out var members))
             return members.Select(kv => (kv.Key, kv.Value)).ToList();
         return [];
+    }
+
+    // ── Placement phase ────────────────────────────────────────────────────
+
+    /// <summary>Initialises the ready-set and returns a new CancellationTokenSource for the 25s timer.</summary>
+    public CancellationTokenSource InitPlacementTimer(string roomId)
+    {
+        if (_placementTimers.TryRemove(roomId, out var old)) old.Cancel();
+        _readyPlayers[roomId] = new HashSet<int>();
+        var cts = new CancellationTokenSource();
+        _placementTimers[roomId] = cts;
+        return cts;
+    }
+
+    /// <summary>Marks a player as ready. Returns true when ALL room members are ready.</summary>
+    public bool MarkReady(string roomId, int userId)
+    {
+        if (!_readyPlayers.TryGetValue(roomId, out var ready)) return false;
+        if (!_rooms.TryGetValue(roomId, out var members)) return false;
+        lock (ready)
+        {
+            ready.Add(userId);
+            return ready.Count >= members.Count;
+        }
+    }
+
+    public void CancelPlacementTimer(string roomId)
+    {
+        if (_placementTimers.TryRemove(roomId, out var cts)) cts.Cancel();
     }
 }

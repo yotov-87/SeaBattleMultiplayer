@@ -25,6 +25,7 @@ export class LobbyComponent implements OnInit, OnDestroy {
   chatInput = '';
   isCreating = false;
 
+  private isNavigatingToGame = false;
   private sub = new Subscription();
 
   /** Online players not yet in the lobby, friends first */
@@ -59,6 +60,13 @@ export class LobbyComponent implements OnInit, OnDestroy {
       })
     );
 
+    this.sub.add(
+      this.signalR.gameStarted$.subscribe(() => {
+        this.isNavigatingToGame = true;
+        this.router.navigate(['/placement']);
+      })
+    );
+
     // Create room only if we don't already have one (e.g. navigated from home invite)
     if (!this.signalR.lobbyRoomId()) {
       this.isCreating = true;
@@ -69,7 +77,9 @@ export class LobbyComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.sub.unsubscribe();
-    this.signalR.leaveLobby();
+    if (!this.isNavigatingToGame) {
+      this.signalR.leaveLobby();
+    }
   }
 
   invite(player: Player): void {
@@ -77,6 +87,10 @@ export class LobbyComponent implements OnInit, OnDestroy {
     if (roomId) {
       this.signalR.sendGameInvite(player.id, roomId);
     }
+  }
+
+  startGame(): void {
+    this.signalR.startGame();
   }
 
   sendChat(): void {

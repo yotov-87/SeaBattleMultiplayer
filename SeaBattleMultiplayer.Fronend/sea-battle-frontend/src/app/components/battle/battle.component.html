@@ -1,0 +1,49 @@
+<div class="battle-page">
+
+  <div class="battle-header">
+    <h1>⚓ Battle</h1>
+    <div class="room-info">
+      Room <span class="room-id">#{{ signalR.lobbyRoomId() }}</span>
+    </div>
+    <button class="btn btn-leave" (click)="leaveGame()">Leave Game</button>
+  </div>
+
+  <div class="battle-body">
+
+    <!-- Battle board placeholder -->
+    <section class="board-placeholder">
+      <p>Battle board — coming soon</p>
+    </section>
+
+    <!-- Chat -->
+    <section class="chat-panel">
+      <h2 class="chat-title">Battle Chat</h2>
+
+      <div class="chat-messages">
+        @for (msg of signalR.battleChatMessages(); track $index) {
+          <div class="chat-msg" [class.own]="msg.senderUsername === authService.username()">
+            <span class="chat-sender">{{ msg.senderUsername }}</span>
+            <span class="chat-text">{{ msg.text }}</span>
+            <span class="chat-time">{{ msg.timestamp | date:'HH:mm' }}</span>
+          </div>
+        }
+        @if (signalR.battleChatMessages().length === 0) {
+          <p class="empty-msg">No messages yet.</p>
+        }
+      </div>
+
+      <div class="chat-input-row">
+        <input
+          class="chat-input"
+          type="text"
+          placeholder="Type a message…"
+          [(ngModel)]="chatInput"
+          (keyup.enter)="sendChat()"
+        />
+        <button class="btn btn-send" (click)="sendChat()">Send</button>
+      </div>
+    </section>
+
+  </div>
+
+</div>

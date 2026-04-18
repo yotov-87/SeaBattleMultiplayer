@@ -24,6 +24,11 @@ export class SignalRService implements OnDestroy {
 
   private readonly roomCreated$ = new Subject<string>();
 
+  // ── Game phase ────────────────────────────────────────────────────
+  readonly gameStarted$ = new Subject<void>();
+  readonly allReady$ = new Subject<void>();
+  readonly battleChatMessages = signal<ChatMessage[]>([]);
+
   // ── Connection ─────────────────────────────────────────────────────────
 
   startConnection(): Promise<void> {
@@ -103,6 +108,22 @@ export class SignalRService implements OnDestroy {
       console.warn('Invite error:', msg);
     });
 
+    // Game phase
+    this.hub.on('GameStarted', () => {
+      this.gameStarted$.next();
+    });
+
+    this.hub.on('AllReady', () => {
+      this.allReady$.next();
+    });
+
+    this.hub.on('BattleChatMessage', (senderId: number, senderUsername: string, text: string, timestamp: string) => {
+      this.battleChatMessages.update(msgs => [
+        ...msgs,
+        { senderId, senderUsername, text, timestamp: new Date(timestamp) }
+      ]);
+    });
+
     return this.hub.start();
   }
 
@@ -111,6 +132,7 @@ export class SignalRService implements OnDestroy {
     this.lobbyRoomId.set(null);
     this.lobbyMembers.set([]);
     this.chatMessages.set([]);
+    this.battleChatMessages.set([]);
     this.onlineUserIds.set(new Set());
     this.latestInvite.set(null);
     this.isHost.set(false);
@@ -120,6 +142,8 @@ export class SignalRService implements OnDestroy {
     this.hub?.stop();
     this.userJoined$.complete();
     this.roomCreated$.complete();
+    this.gameStarted$.complete();
+    this.allReady$.complete();
   }
 
   // ── Presence methods ───────────────────────────────────────────────────
@@ -163,7 +187,21 @@ export class SignalRService implements OnDestroy {
     this.lobbyRoomId.set(null);
     this.lobbyMembers.set([]);
     this.chatMessages.set([]);
+    this.battleChatMessages.set([]);
     this.isHost.set(false);
+  }
+
+  startGame(): void {
+    this.hub?.invoke('StartGame');
+  }
+
+  playerReady(): void {
+    this.hub?.invoke('PlayerReady');
+  }
+
+  sendBattleChat(message: string): void {
+    const roomId = this.lobbyRoomId();
+    if (roomId) this.hub?.invoke('SendBattleChat', roomId, message);
   }
 }
 

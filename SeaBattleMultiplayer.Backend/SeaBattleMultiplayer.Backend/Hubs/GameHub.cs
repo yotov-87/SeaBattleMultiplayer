@@ -11,11 +11,13 @@ public class GameHub : Hub
 {
     private readonly OnlineUsersService _onlineUsers;
     private readonly AppDbContext _db;
+    private readonly IHubContext<GameHub> _hubContext;
 
-    public GameHub(OnlineUsersService onlineUsers, AppDbContext db)
+    public GameHub(OnlineUsersService onlineUsers, AppDbContext db, IHubContext<GameHub> hubContext)
     {
         _onlineUsers = onlineUsers;
         _db = db;
+        _hubContext = hubContext;
     }
 
     private int GetUserId() =>
@@ -159,5 +161,51 @@ public class GameHub : Hub
         _onlineUsers.RemoveFromRoom(userId);
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"room-{roomId}");
         await Clients.Group($"room-{roomId}").SendAsync("UserLeftLobby", userId, username);
+    }
+
+    // ── Game phase ─────────────────────────────────────────────────────────
+
+    public async Task StartGame()
+    {
+        var userId = GetUserId();
+        var roomId = _onlineUsers.GetUserRoom(userId);
+        if (roomId is null || _onlineUsers.GetRoomHost(roomId) != userId) return;
+
+        var cts = _onlineUsers.InitPlacementTimer(roomId);
+        await Clients.Group($"room-{roomId}").SendAsync("GameStarted");
+
+        // 25-second placement timer — fires AllReady if players haven't all readied up
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(25_000, cts.Token);
+                await _hubContext.Clients.Group($"room-{roomId}").SendAsync("AllReady");
+            }
+            catch (OperationCanceledException) { /* all players readied before timer */ }
+        });
+    }
+
+    public async Task PlayerReady()
+    {
+        var userId = GetUserId();
+        var roomId = _onlineUsers.GetUserRoom(userId);
+        if (roomId is null) return;
+
+        bool allReady = _onlineUsers.MarkReady(roomId, userId);
+        if (allReady)
+        {
+            _onlineUsers.CancelPlacementTimer(roomId);
+            await Clients.Group($"room-{roomId}").SendAsync("AllReady");
+        }
+    }
+
+    public async Task SendBattleChat(string roomId, string message)
+    {
+        var userId = GetUserId();
+        var username = GetUsername();
+        if (_onlineUsers.GetUserRoom(userId) != roomId) return;
+        await Clients.Group($"room-{roomId}")
+            .SendAsync("BattleChatMessage", userId, username, message, DateTime.UtcNow);
     }
 }

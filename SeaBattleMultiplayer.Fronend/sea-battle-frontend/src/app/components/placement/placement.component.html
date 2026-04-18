@@ -1,0 +1,43 @@
+<div class="placement-page">
+
+  <div class="placement-header">
+    <h1>Place Your Ships</h1>
+    <div class="timer" [class.urgent]="timeLeft() <= 10">
+      {{ timeLeft() }}<span class="timer-unit">s</span>
+    </div>
+  </div>
+
+  <div class="placement-body">
+    <div class="grid-wrapper">
+      <div class="grid-col-labels">
+        <span></span>
+        @for (c of cols; track c) {
+          <span>{{ c + 1 }}</span>
+        }
+      </div>
+
+      @for (r of rows; track r) {
+        <div class="grid-row">
+          <span class="row-label">{{ 'ABCDEFGHIJ'[r] }}</span>
+          @for (c of cols; track c) {
+            <div class="grid-cell"></div>
+          }
+        </div>
+      }
+    </div>
+
+    <p class="coming-soon">Ship placement will be available soon.</p>
+  </div>
+
+  <div class="placement-footer">
+    <button class="btn-ready" (click)="markReady()" [disabled]="isReady">
+      @if (isReady) {
+        Waiting for others…
+      } @else {
+        ✔ I'm Ready!
+      }
+    </button>
+    <p class="hint">Game starts automatically when all players are ready or the timer runs out.</p>
+  </div>
+
+</div>
