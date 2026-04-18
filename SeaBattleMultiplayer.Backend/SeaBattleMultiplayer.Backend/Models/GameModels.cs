@@ -1,4 +1,4 @@
-namespace SeaBattleMultiplayer.Backend.Models;
+﻿namespace SeaBattleMultiplayer.Backend.Models;
 
 public record Cell(int Row, int Col);
 
@@ -21,6 +21,8 @@ public class BattleShip
 
 public enum ShotOutcome { Miss, Hit, Sunk }
 
+public enum GamePhase { Lobby, Placement, Battle, Finished }
+
 public class PlayerFleet
 {
     public List<BattleShip> Ships { get; } = new();
@@ -39,13 +41,18 @@ public class PlayerFleet
 
 public class GameRoomState
 {
+    /// <summary>DB primary key вЂ” set once BeginBattle persists the record.</summary>
+    public int DbGameId { get; set; }
+
+    public GamePhase Phase { get; set; } = GamePhase.Placement;
+
     public Dictionary<int, string> PlayerNames { get; } = new();
     public Dictionary<int, PlayerFleet> Fleets { get; } = new();
     public List<int> TurnOrder { get; set; } = new();
     public int TurnIndex { get; set; } = 0;
     public CancellationTokenSource? TurnTimerCts { get; set; }
 
-    // (shooterId, targetId) → cells already fired
+    // (shooterId, targetId) в†’ cells already fired
     private readonly Dictionary<(int, int), HashSet<Cell>> _firedCells = new();
 
     public int CurrentPlayerId =>
@@ -64,4 +71,7 @@ public class GameRoomState
         }
         return set;
     }
+
+    /// <summary>Returns all moves ever recorded, for reconnect restore.</summary>
+    public List<(int ShooterId, int TargetId, int Row, int Col, string Result)> AllMoves { get; } = new();
 }

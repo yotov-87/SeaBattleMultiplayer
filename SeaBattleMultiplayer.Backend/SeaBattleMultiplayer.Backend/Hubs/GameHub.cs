@@ -1,8 +1,11 @@
 ﻿using System.Security.Claims;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using SeaBattleMultiplayer.Backend.Data;
 using SeaBattleMultiplayer.Backend.DTOs;
+using SeaBattleMultiplayer.Backend.Models;
 using SeaBattleMultiplayer.Backend.Services;
 
 namespace SeaBattleMultiplayer.Backend.Hubs;
@@ -29,7 +32,7 @@ public class GameHub : Hub
     private string GetUsername() =>
         Context.User!.FindFirstValue(ClaimTypes.Name)!;
 
-    // в”Ђв”Ђ Connection lifecycle в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // ── Connection lifecycle ───────────────────────────────────────────────
 
     public override async Task OnConnectedAsync()
     {
@@ -41,6 +44,87 @@ public class GameHub : Hub
         await Clients.Others.SendAsync("UserOnline", userId, username);
         await Clients.Caller.SendAsync("OnlineUsers", _onlineUsers.GetOnlineUserIds());
 
+        // If the player is in an active game (e.g. after browser refresh), rejoin the group
+        // and send them the full game state to restore the board
+        var activeRoomId = _gameState.GetActiveGameRoomForUser(userId);
+        if (activeRoomId is not null)
+        {
+            // Restore room membership in SignalR group
+            _onlineUsers.AddToRoom(activeRoomId, userId, username);
+            await Groups.AddToGroupAsync(Context.ConnectionId, $"room-{activeRoomId}");
+
+            var state = _gameState.GetState(activeRoomId)!;
+
+            // Rebuild the lobby member list from the game state
+            var members = state.PlayerNames.Select(kv => new { id = kv.Key, username = kv.Value }).ToList();
+            await Clients.Caller.SendAsync("RoomJoined", activeRoomId);
+            await Clients.Caller.SendAsync("LobbyState", members);
+
+            // Replay all moves so the frontend can reconstruct both boards
+            var myMoves = state.AllMoves
+                .Where(m => m.ShooterId == userId)   // only shots I fired
+                .Select(m =>
+                {
+                    List<CellDto>? sunkCells = null;
+                    if (m.Result == "sunk")
+                    {
+                        var fleet = state.Fleets.GetValueOrDefault(m.TargetId);
+                        if (fleet is not null)
+                        {
+                            var ship = fleet.Ships.FirstOrDefault(s => s.HitCells.Contains(new Cell(m.Row, m.Col)));
+                            sunkCells = ship?.Cells.Select(c => new CellDto(c.Row, c.Col)).ToList();
+                        }
+                    }
+                    return new ShotResultDto(m.ShooterId, m.TargetId, m.Row, m.Col, m.Result, sunkCells);
+                }).ToList();
+
+            // Shots received by me (so my fleet board shows damage)
+            var shotsOnMe = state.AllMoves
+                .Where(m => m.TargetId == userId)
+                .Select(m =>
+                {
+                    List<CellDto>? sunkCells = null;
+                    if (m.Result == "sunk")
+                    {
+                        var fleet = state.Fleets.GetValueOrDefault(userId);
+                        if (fleet is not null)
+                        {
+                            var ship = fleet.Ships.FirstOrDefault(s => s.HitCells.Contains(new Cell(m.Row, m.Col)));
+                            sunkCells = ship?.Cells.Select(c => new CellDto(c.Row, c.Col)).ToList();
+                        }
+                    }
+                    return new ShotResultDto(m.ShooterId, m.TargetId, m.Row, m.Col, m.Result, sunkCells);
+                }).ToList();
+
+            var allRelevantMoves = myMoves.Concat(shotsOnMe).ToList();
+
+            // Eliminated players
+            var eliminated = state.TurnOrder
+                .Where(id => state.Fleets.TryGetValue(id, out var f) && f.IsEliminated)
+                .ToList();
+
+            var turn = _gameState.GetCurrentTurn(activeRoomId);
+
+            await Clients.Caller.SendAsync("RejoinGame", new
+            {
+                roomId = activeRoomId,
+                phase = state.Phase.ToString().ToLower(),
+                moves = allRelevantMoves,
+                eliminatedPlayerIds = eliminated,
+                currentTurnPlayerId = turn?.PlayerId,
+                currentTurnUsername = turn?.Username,
+                myFleet = state.Fleets.TryGetValue(userId, out var myFleet)
+                    ? myFleet.Ships.Select(ship => new
+                      {
+                          size = ship.Cells.Count,
+                          row  = ship.Cells.First().Row,
+                          col  = ship.Cells.First().Col,
+                          horizontal = ship.Cells.Count < 2 || ship.Cells[0].Row == ship.Cells[1].Row
+                      }).ToList()
+                    : null
+            });
+        }
+
         await base.OnConnectedAsync();
     }
 
@@ -49,11 +133,23 @@ public class GameHub : Hub
         var userId = GetUserId();
         var username = GetUsername();
 
-        var roomId = _onlineUsers.RemoveFromRoom(userId);
-        if (roomId is not null)
+        // Only remove from the SignalR group if the player is NOT in an active battle.
+        // During a battle, we keep their room membership so they can rejoin on reconnect.
+        var activeRoomId = _gameState.GetActiveGameRoomForUser(userId);
+        if (activeRoomId is null)
         {
-            await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"room-{roomId}");
-            await Clients.Group($"room-{roomId}").SendAsync("UserLeftLobby", userId, username);
+            // Not in an active game — clean up room membership normally
+            var roomId = _onlineUsers.RemoveFromRoom(userId);
+            if (roomId is not null)
+            {
+                await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"room-{roomId}");
+                await Clients.Group($"room-{roomId}").SendAsync("UserLeftLobby", userId, username);
+            }
+        }
+        else
+        {
+            // Still in an active game — just remove the connection ID but keep room membership
+            // so on reconnect we can restore their game state
         }
 
         _onlineUsers.RemoveUser(userId);
@@ -72,7 +168,7 @@ public class GameHub : Hub
         await base.OnDisconnectedAsync(exception);
     }
 
-    // в”Ђв”Ђ Presence в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // ── Presence ───────────────────────────────────────────────────────────
 
     public async Task SendGameInvite(int targetUserId, string roomId)
     {
@@ -83,7 +179,7 @@ public class GameHub : Hub
             await Clients.Client(connectionId).SendAsync("GameInviteReceived", senderId, senderUsername, roomId);
     }
 
-    // в”Ђв”Ђ Lobby в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // ── Lobby ──────────────────────────────────────────────────────────────
 
     public async Task CreateGame()
     {
@@ -151,12 +247,39 @@ public class GameHub : Hub
     {
         var userId = GetUserId();
         var username = GetUsername();
+
+        // If leaving during an active battle, treat as voluntary exit → remove from game state too
+        var state = _gameState.GetState(roomId);
+        if (state is not null && state.Phase == GamePhase.Battle)
+        {
+            // Mark player as eliminated (voluntary leave)
+            if (state.Fleets.TryGetValue(userId, out var fleet))
+            {
+                // Force all ships as sunk by hitting every cell
+                foreach (var ship in fleet.Ships)
+                    foreach (var cell in ship.Cells)
+                        ship.TryHit(cell.Row, cell.Col);
+
+                await _hubContext.Clients.Group($"room-{roomId}").SendAsync("PlayerEliminated", userId);
+
+                var alive = state.AlivePlayers;
+                if (alive.Count == 1)
+                {
+                    state.Phase = GamePhase.Finished;
+                    var winnerId = alive[0];
+                    var winnerName = state.PlayerNames.GetValueOrDefault(winnerId, "?");
+                    await _hubContext.Clients.Group($"room-{roomId}").SendAsync("BattleOver", new { winnerId, winnerUsername = winnerName });
+                    await PersistGameOver(roomId, winnerId);
+                }
+            }
+        }
+
         _onlineUsers.RemoveFromRoom(userId);
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"room-{roomId}");
         await Clients.Group($"room-{roomId}").SendAsync("UserLeftLobby", userId, username);
     }
 
-    // в”Ђв”Ђ Placement phase в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // ── Placement phase ────────────────────────────────────────────────────
 
     public async Task StartGame()
     {
@@ -164,7 +287,6 @@ public class GameHub : Hub
         var roomId = _onlineUsers.GetUserRoom(userId);
         if (roomId is null || _onlineUsers.GetRoomHost(roomId) != userId) return;
 
-        // Init game state now so fleets can be stored during placement
         var members = _onlineUsers.GetRoomMembers(roomId).ToDictionary(m => m.Id, m => m.Username);
         _gameState.InitGame(roomId, members);
 
@@ -198,10 +320,8 @@ public class GameHub : Hub
         }
     }
 
-    // Called either when all submit fleets OR when the 30s timer fires
     private async Task ForceBattleStart(string roomId)
     {
-        // Assign empty fleet to anyone who disconnected or didn't submit
         var state = _gameState.GetState(roomId);
         if (state is null) return;
         foreach (var id in state.PlayerNames.Keys)
@@ -214,6 +334,37 @@ public class GameHub : Hub
 
     private async Task BeginBattle(string roomId)
     {
+        var state = _gameState.GetState(roomId);
+        if (state is null) return;
+
+        state.Phase = GamePhase.Battle;
+
+        // ── Persist game start to DB ──
+        var record = new GameRecord
+        {
+            RoomId = roomId,
+            StartedAt = DateTime.UtcNow
+        };
+        foreach (var (uid, uname) in state.PlayerNames)
+        {
+            var fleet = state.Fleets.GetValueOrDefault(uid);
+            var fleetDtos = fleet?.Ships.Select(ship => new ShipDto(
+                ship.Cells.Count,
+                ship.Cells.First().Row,
+                ship.Cells.First().Col,
+                ship.Cells.Count < 2 || ship.Cells[0].Row == ship.Cells[1].Row
+            )).ToList() ?? new List<ShipDto>();
+
+            record.Participants.Add(new GameParticipant
+            {
+                UserId = uid,
+                FleetJson = JsonSerializer.Serialize(fleetDtos)
+            });
+        }
+        _db.GameRecords.Add(record);
+        await _db.SaveChangesAsync();
+        state.DbGameId = record.Id;
+
         await _hubContext.Clients.Group($"room-{roomId}").SendAsync("AllReady");
 
         var turn = _gameState.GetCurrentTurn(roomId);
@@ -223,7 +374,7 @@ public class GameHub : Hub
         StartTurnTimer(roomId, turn.PlayerId, turn.Username);
     }
 
-    // в”Ђв”Ђ Battle phase в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // ── Battle phase ───────────────────────────────────────────────────────
 
     public async Task FireShot(int targetId, int row, int col)
     {
@@ -231,7 +382,6 @@ public class GameHub : Hub
         var roomId = _onlineUsers.GetUserRoom(userId);
         if (roomId is null) return;
 
-        // Only the current turn player can fire
         var turn = _gameState.GetCurrentTurn(roomId);
         if (turn?.PlayerId != userId) return;
 
@@ -247,12 +397,37 @@ public class GameHub : Hub
         await Clients.Group($"room-{roomId}").SendAsync("BattleChatMessage", userId, username, message, DateTime.UtcNow);
     }
 
-    // в”Ђв”Ђ Shared helpers в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // ── Shared helpers ─────────────────────────────────────────────────────
 
     private async Task ProcessAndBroadcastShot(string roomId, int shooterId, int targetId, int row, int col, bool useHubContext)
     {
         var (result, eliminated, gameOver, winnerId) = _gameState.ProcessShot(roomId, shooterId, targetId, row, col);
         if (result is null) return;
+
+        // ── Persist move to DB ──
+        var state = _gameState.GetState(roomId);
+        if (state?.DbGameId > 0)
+        {
+            _db.GameMoves.Add(new GameMove
+            {
+                GameRecordId = state.DbGameId,
+                ShooterId = shooterId,
+                TargetId = targetId,
+                Row = row,
+                Col = col,
+                Result = result.Result,
+                FiredAt = DateTime.UtcNow
+            });
+
+            if (eliminated)
+            {
+                var participant = await _db.GameParticipants
+                    .FirstOrDefaultAsync(p => p.GameRecordId == state.DbGameId && p.UserId == targetId);
+                if (participant is not null) participant.IsEliminated = true;
+            }
+
+            await _db.SaveChangesAsync();
+        }
 
         await Send($"room-{roomId}", "ShotFired", result, useHubContext);
 
@@ -261,8 +436,9 @@ public class GameHub : Hub
 
         if (gameOver && winnerId.HasValue)
         {
-            var winnerName = _gameState.GetState(roomId)?.PlayerNames.GetValueOrDefault(winnerId.Value, "?") ?? "?";
+            var winnerName = state?.PlayerNames.GetValueOrDefault(winnerId.Value, "?") ?? "?";
             await Send($"room-{roomId}", "BattleOver", new { winnerId = winnerId.Value, winnerUsername = winnerName }, useHubContext);
+            await PersistGameOver(roomId, winnerId.Value);
             return;
         }
 
@@ -271,6 +447,22 @@ public class GameHub : Hub
 
         await Send($"room-{roomId}", "TurnStarted", new { playerId = nextTurn.PlayerId, username = nextTurn.Username }, useHubContext);
         StartTurnTimer(roomId, nextTurn.PlayerId, nextTurn.Username);
+    }
+
+    private async Task PersistGameOver(string roomId, int winnerId)
+    {
+        var state = _gameState.GetState(roomId);
+        if (state?.DbGameId > 0)
+        {
+            var record = await _db.GameRecords.FindAsync(state.DbGameId);
+            if (record is not null)
+            {
+                record.WinnerId = winnerId;
+                record.EndedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+            }
+        }
+        _gameState.RemoveGame(roomId);
     }
 
     private void StartTurnTimer(string roomId, int currentPlayerId, string currentPlayerUsername)
@@ -283,17 +475,15 @@ public class GameHub : Hub
                 await Task.Delay(15_000, cts.Token);
                 var randomShot = _gameState.GetRandomShot(roomId, currentPlayerId);
                 if (randomShot is null) return;
-                var (targetId, row, col) = randomShot.Value;
-                await ProcessAndBroadcastShot(roomId, currentPlayerId, targetId, row, col, useHubContext: true);
+                var (targetId, r, c) = randomShot.Value;
+                await ProcessAndBroadcastShot(roomId, currentPlayerId, targetId, r, c, useHubContext: true);
             }
             catch (OperationCanceledException) { }
         });
     }
 
-    /// <summary>Sends a hub event to a group using either the hub context (background) or the hub clients (request).</summary>
     private Task Send(string group, string method, object? arg, bool useHubContext) =>
         useHubContext
             ? _hubContext.Clients.Group(group).SendAsync(method, arg)
             : Clients.Group(group).SendAsync(method, arg);
 }
-

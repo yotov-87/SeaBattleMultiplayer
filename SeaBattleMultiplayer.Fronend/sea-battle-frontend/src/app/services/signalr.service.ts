@@ -1,4 +1,5 @@
 ﻿import { Injectable, inject, signal, OnDestroy } from '@angular/core';
+import { Router } from '@angular/router';
 import * as signalR from '@microsoft/signalr';
 import { Subject, firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
@@ -8,6 +9,7 @@ import { GameInvite, LobbyMember, ChatMessage, BattleShotResult, ShipPlacement }
 @Injectable({ providedIn: 'root' })
 export class SignalRService implements OnDestroy {
   private readonly authService = inject(AuthService);
+  private readonly router = inject(Router);
 
   private hub: signalR.HubConnection | null = null;
 
@@ -86,6 +88,33 @@ export class SignalRService implements OnDestroy {
       this.lobbyRoomId.set(roomId);
       this.chatMessages.set([]);
       this.isHost.set(false);
+    });
+
+    this.hub.on('RejoinGame', (data: {
+      roomId: string;
+      phase: string;
+      moves: BattleShotResult[];
+      eliminatedPlayerIds: number[];
+      currentTurnPlayerId: number | null;
+      currentTurnUsername: string | null;
+      myFleet: ShipPlacement[] | null;
+    }) => {
+      // Restore all signals so the battle/placement component can render correctly
+      this.lobbyRoomId.set(data.roomId);
+      this.isHost.set(false);
+      if (data.myFleet) this.myFleet.set(data.myFleet);
+      this.shotResults.set(data.moves ?? []);
+      this.eliminatedPlayerIds.set(new Set(data.eliminatedPlayerIds ?? []));
+      this.currentTurnPlayerId.set(data.currentTurnPlayerId ?? null);
+      this.currentTurnUsername.set(data.currentTurnUsername ?? '');
+      this.battleWinnerId.set(null);
+      this.battleWinnerUsername.set(null);
+      // Navigate to the appropriate phase
+      if (data.phase === 'battle') {
+        this.router.navigate(['/battle']);
+      } else if (data.phase === 'placement') {
+        this.router.navigate(['/placement']);
+      }
     });
 
     this.hub.on('LobbyState', (members: LobbyMember[]) => {

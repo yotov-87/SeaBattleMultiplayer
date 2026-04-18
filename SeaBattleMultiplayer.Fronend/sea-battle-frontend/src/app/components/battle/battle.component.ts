@@ -109,19 +109,28 @@ export class BattleComponent implements OnInit, OnDestroy {
     const targetId = this.selectedTarget();
     if (targetId === null) return this.ROWS.map(() => this.COLS.map(() => 'unknown'));
 
-    const myShots  = this.signalR.shotResults()
-                       .filter(s => s.shooterId === this.myId() && s.targetId === targetId);
-    const sunkCells = new Set<number>();
+    // Only shots I personally fired at this target
+    const myShots = this.signalR.shotResults()
+      .filter(s => s.shooterId === this.myId() && s.targetId === targetId);
+
+    // All ship cells that I personally caused to sink:
+    // a cell counts as 'sunk' if it appears in sunkCells of one of MY sinking shots
+    // AND I have a direct shot at that cell (so I don't reveal cells other players hit)
+    const myShotKeys = new Set<number>(myShots.map(s => s.row * 10 + s.col));
+    const sunkKeys = new Set<number>();
     for (const shot of myShots) {
       if (shot.sunkCells) {
-        for (const c of shot.sunkCells) sunkCells.add(c.row * 10 + c.col);
+        for (const c of shot.sunkCells) {
+          const key = c.row * 10 + c.col;
+          if (myShotKeys.has(key)) sunkKeys.add(key);
+        }
       }
     }
 
     return this.ROWS.map(r =>
       this.COLS.map(c => {
-        const key  = r * 10 + c;
-        if (sunkCells.has(key)) return 'sunk';
+        const key = r * 10 + c;
+        if (sunkKeys.has(key)) return 'sunk';
         const shot = myShots.find(s => s.row === r && s.col === c);
         if (!shot) return 'unknown';
         return shot.result === 'miss' ? 'miss' : 'hit';

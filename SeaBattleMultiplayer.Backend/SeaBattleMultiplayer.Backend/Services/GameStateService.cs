@@ -86,6 +86,9 @@ public class GameStateService
             sunkCells = sunkShip.Cells.Select(c => new CellDto(c.Row, c.Col)).ToList();
         }
 
+        // Record the move in-memory (hub will persist to DB)
+        state.AllMoves.Add((shooterId, targetId, row, col, resultStr));
+
         var dto = new ShotResultDto(shooterId, targetId, row, col, resultStr, sunkCells);
         bool eliminated = fleet.IsEliminated;
 
@@ -98,6 +101,7 @@ public class GameStateService
             {
                 gameOver = true;
                 winnerId = alive[0];
+                state.Phase = GamePhase.Finished;
             }
         }
 
@@ -164,6 +168,17 @@ public class GameStateService
 
     public GameRoomState? GetState(string roomId) =>
         _games.TryGetValue(roomId, out var s) ? s : null;
+
+    /// <summary>Returns the roomId of an active (non-finished) game the user is part of, or null.</summary>
+    public string? GetActiveGameRoomForUser(int userId)
+    {
+        foreach (var (roomId, state) in _games)
+        {
+            if (state.Phase != GamePhase.Finished && state.PlayerNames.ContainsKey(userId))
+                return roomId;
+        }
+        return null;
+    }
 
     public void RemoveGame(string roomId) =>
         _games.TryRemove(roomId, out _);
