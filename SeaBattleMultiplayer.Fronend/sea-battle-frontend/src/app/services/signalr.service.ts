@@ -1,9 +1,9 @@
 import { Injectable, inject, signal, OnDestroy } from '@angular/core';
 import * as signalR from '@microsoft/signalr';
-import { Subject } from 'rxjs';
+import { Subject, firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
-import { GameInvite } from '../models/player.models';
+import { GameInvite, LobbyMember, ChatMessage } from '../models/player.models';
 
 @Injectable({ providedIn: 'root' })
 export class SignalRService implements OnDestroy {
@@ -11,11 +11,20 @@ export class SignalRService implements OnDestroy {
 
   private hub: signalR.HubConnection | null = null;
 
+  // ── Presence ──────────────────────────────────────────────────────────
   readonly onlineUserIds = signal<Set<number>>(new Set());
   readonly latestInvite = signal<GameInvite | null>(null);
-
-  /** Emits whenever a user comes online that the client should know about */
   readonly userJoined$ = new Subject<{ id: number; username: string }>();
+
+  // ── Lobby ──────────────────────────────────────────────────────────────
+  readonly lobbyRoomId = signal<string | null>(null);
+  readonly lobbyMembers = signal<LobbyMember[]>([]);
+  readonly chatMessages = signal<ChatMessage[]>([]);
+  readonly isHost = signal<boolean>(false);
+
+  private readonly roomCreated$ = new Subject<string>();
+
+  // ── Connection ─────────────────────────────────────────────────────────
 
   startConnection(): Promise<void> {
     if (this.hub?.state === signalR.HubConnectionState.Connected) {
@@ -29,6 +38,7 @@ export class SignalRService implements OnDestroy {
       .withAutomaticReconnect()
       .build();
 
+    // Presence
     this.hub.on('OnlineUsers', (ids: number[]) => {
       this.onlineUserIds.set(new Set(ids));
     });
@@ -46,23 +56,114 @@ export class SignalRService implements OnDestroy {
       });
     });
 
-    this.hub.on('GameInviteReceived', (senderId: number, senderUsername: string) => {
-      this.latestInvite.set({ senderId, senderUsername });
+    this.hub.on('GameInviteReceived', (senderId: number, senderUsername: string, roomId: string) => {
+      this.latestInvite.set({ senderId, senderUsername, roomId });
+    });
+
+    // Lobby
+    this.hub.on('RoomCreated', (roomId: string) => {
+      this.lobbyRoomId.set(roomId);
+      this.chatMessages.set([]);
+      this.isHost.set(true);
+      this.roomCreated$.next(roomId);
+    });
+
+    this.hub.on('RoomJoined', (roomId: string) => {
+      this.lobbyRoomId.set(roomId);
+      this.chatMessages.set([]);
+      this.isHost.set(false);
+    });
+
+    this.hub.on('LobbyState', (members: LobbyMember[]) => {
+      this.lobbyMembers.set(members);
+    });
+
+    this.hub.on('UserJoinedLobby', (userId: number, username: string) => {
+      this.lobbyMembers.update(m =>
+        m.some(x => x.id === userId) ? m : [...m, { id: userId, username }]
+      );
+    });
+
+    this.hub.on('UserLeftLobby', (userId: number) => {
+      this.lobbyMembers.update(m => m.filter(x => x.id !== userId));
+    });
+
+    this.hub.on('LobbyChatMessage', (senderId: number, senderUsername: string, text: string, timestamp: string) => {
+      this.chatMessages.update(msgs => [
+        ...msgs,
+        { senderId, senderUsername, text, timestamp: new Date(timestamp) }
+      ]);
+    });
+
+    this.hub.on('InviteDeclined', (username: string) => {
+      console.info(`${username} declined the invite.`);
+    });
+
+    this.hub.on('InviteError', (msg: string) => {
+      console.warn('Invite error:', msg);
     });
 
     return this.hub.start();
   }
 
-  sendGameInvite(targetUserId: number): Promise<void> {
-    return this.hub?.invoke('SendGameInvite', targetUserId) ?? Promise.resolve();
-  }
-
   stopConnection(): void {
     this.hub?.stop();
-    this.userJoined$.complete();
+    this.lobbyRoomId.set(null);
+    this.lobbyMembers.set([]);
+    this.chatMessages.set([]);
+    this.onlineUserIds.set(new Set());
+    this.latestInvite.set(null);
+    this.isHost.set(false);
   }
 
   ngOnDestroy(): void {
-    this.stopConnection();
+    this.hub?.stop();
+    this.userJoined$.complete();
+    this.roomCreated$.complete();
+  }
+
+  // ── Presence methods ───────────────────────────────────────────────────
+
+  sendGameInvite(targetUserId: number, roomId: string): void {
+    this.hub?.invoke('SendGameInvite', targetUserId, roomId);
+  }
+
+  // ── Lobby methods ──────────────────────────────────────────────────────
+
+  async createGame(): Promise<string> {
+    const roomIdPromise = firstValueFrom(this.roomCreated$);
+    await this.hub!.invoke('CreateGame');
+    return roomIdPromise;
+  }
+
+  async acceptInvite(roomId: string): Promise<void> {
+    // Clear local lobby state before joining the new room
+    this.lobbyRoomId.set(null);
+    this.lobbyMembers.set([]);
+    this.chatMessages.set([]);
+    await this.hub!.invoke('AcceptInvite', roomId);
+    this.latestInvite.set(null);
+  }
+
+  declineInvite(hostUserId: number): void {
+    this.hub?.invoke('DeclineInvite', hostUserId);
+    this.latestInvite.set(null);
+  }
+
+  sendLobbyChat(message: string): void {
+    const roomId = this.lobbyRoomId();
+    if (roomId) this.hub?.invoke('SendLobbyChat', roomId, message);
+  }
+
+  leaveLobby(): void {
+    const roomId = this.lobbyRoomId();
+    if (roomId && this.hub?.state === signalR.HubConnectionState.Connected) {
+      this.hub.invoke('LeaveLobby', roomId);
+    }
+    this.lobbyRoomId.set(null);
+    this.lobbyMembers.set([]);
+    this.chatMessages.set([]);
+    this.isHost.set(false);
   }
 }
+

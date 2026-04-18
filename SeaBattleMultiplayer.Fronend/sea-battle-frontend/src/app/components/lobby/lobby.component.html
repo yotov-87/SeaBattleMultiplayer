@@ -1,0 +1,92 @@
+<div class="lobby-page">
+  @if (isCreating) {
+    <div class="creating-msg">Creating game room…</div>
+  } @else {
+
+    <div class="lobby-layout">
+
+      <!-- Left: Invite panel -->
+      <section class="invite-panel">
+        <h2 class="panel-title">Online Players</h2>
+        <p class="panel-sub">Friends appear first. Invite them to your game.</p>
+
+        @if (invitablePlayers().length === 0) {
+          <p class="empty-msg">No other online players to invite.</p>
+        }
+
+        @for (player of invitablePlayers(); track player.id) {
+          <div class="player-row">
+            <div class="player-info">
+              <span class="status-dot"></span>
+              <span class="name">{{ player.username }}</span>
+              @if (player.isFriend) {
+                <span class="friend-badge">Friend</span>
+              }
+            </div>
+            <button class="btn btn-invite" (click)="invite(player)">Invite</button>
+          </div>
+        }
+      </section>
+
+      <!-- Right: Lobby room -->
+      <section class="room-panel">
+        <div class="room-header">
+          <h2 class="panel-title">
+            Game Lobby
+            @if (signalR.lobbyRoomId()) {
+              <span class="room-id">#{{ signalR.lobbyRoomId() }}</span>
+            }
+          </h2>
+          <div class="room-actions">
+            @if (signalR.isHost()) {
+              <button class="btn btn-start">▶ Start Game</button>
+            }
+            <button class="btn btn-leave" (click)="leaveLobby()">Leave</button>
+          </div>
+        </div>
+
+        <!-- Members -->
+        <div class="members-list">
+          <p class="members-label">In room ({{ signalR.lobbyMembers().length }})</p>
+          @for (member of signalR.lobbyMembers(); track member.id) {
+            <div class="member-row">
+              <span class="status-dot"></span>
+              <span>{{ member.username }}</span>
+              @if (member.username === authService.username()) {
+                <span class="you-badge">you</span>
+              }
+            </div>
+          }
+        </div>
+
+        <!-- Chat -->
+        <div class="chat-area">
+          <div class="chat-messages">
+            @for (msg of signalR.chatMessages(); track $index) {
+              <div class="chat-msg">
+                <span class="chat-sender">{{ msg.senderUsername }}</span>
+                <span class="chat-text">{{ msg.text }}</span>
+                <span class="chat-time">{{ msg.timestamp | date:'HH:mm' }}</span>
+              </div>
+            }
+            @if (signalR.chatMessages().length === 0) {
+              <p class="empty-msg">No messages yet. Say hi!</p>
+            }
+          </div>
+
+          <div class="chat-input-row">
+            <input
+              class="chat-input"
+              type="text"
+              placeholder="Type a message…"
+              [(ngModel)]="chatInput"
+              (keyup.enter)="sendChat()"
+            />
+            <button class="btn btn-send" (click)="sendChat()">Send</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  }
+</div>

@@ -1,4 +1,5 @@
 import { Component, inject, OnInit, OnDestroy, computed, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { AuthService } from '../../services/auth.service';
 import { FriendsService } from '../../services/friends.service';
@@ -16,7 +17,8 @@ import { CommonModule } from '@angular/common';
 export class HomeComponent implements OnInit, OnDestroy {
   readonly authService = inject(AuthService);
   private readonly friendsService = inject(FriendsService);
-  readonly signalR = inject(SignalRService);
+  private readonly signalR = inject(SignalRService);
+  private readonly router = inject(Router);
 
   private readonly allPlayers = signal<Player[]>([]);
 
@@ -34,15 +36,12 @@ export class HomeComponent implements OnInit, OnDestroy {
       .sort((a, b) => a.username.localeCompare(b.username));
   });
 
-  readonly invite = this.signalR.latestInvite;
-
   private sub = new Subscription();
 
   async ngOnInit(): Promise<void> {
     await this.signalR.startConnection();
     this.loadPlayers();
 
-    // When a brand-new user comes online they may not be in allPlayers yet
     this.sub.add(
       this.signalR.userJoined$.subscribe(({ id, username }) => {
         const exists = this.allPlayers().some(p => p.id === id);
@@ -58,7 +57,6 @@ export class HomeComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.sub.unsubscribe();
-    this.signalR.stopConnection();
   }
 
   private loadPlayers(): void {
@@ -83,12 +81,13 @@ export class HomeComponent implements OnInit, OnDestroy {
     });
   }
 
-  inviteToGame(player: Player): void {
-    this.signalR.sendGameInvite(player.id);
-  }
-
-  dismissInvite(): void {
-    this.signalR.latestInvite.set(null);
+  async inviteToGame(player: Player): Promise<void> {
+    let roomId = this.signalR.lobbyRoomId();
+    if (!roomId) {
+      roomId = await this.signalR.createGame();
+    }
+    this.signalR.sendGameInvite(player.id, roomId);
+    this.router.navigate(['/lobby']);
   }
 }
 

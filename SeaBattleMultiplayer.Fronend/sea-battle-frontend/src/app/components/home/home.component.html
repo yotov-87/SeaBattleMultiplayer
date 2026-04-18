@@ -1,14 +1,3 @@
-<!-- Game invite toast -->
-@if (invite()) {
-  <div class="invite-toast">
-    <span><strong>{{ invite()!.senderUsername }}</strong> invited you to a game!</span>
-    <div class="invite-actions">
-      <button class="btn-accept">Accept</button>
-      <button class="btn-decline" (click)="dismissInvite()">Decline</button>
-    </div>
-  </div>
-}
-
 <div class="dashboard">
   <h1>Welcome, {{ authService.username() }}!</h1>
 

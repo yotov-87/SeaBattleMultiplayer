@@ -1,3 +1,14 @@
 <app-header />
+
+@if (signalR.latestInvite()) {
+  <div class="invite-toast">
+    <span><strong>{{ signalR.latestInvite()!.senderUsername }}</strong> invited you to a game!</span>
+    <div class="invite-actions">
+      <button class="btn-accept" (click)="acceptInvite()">Accept</button>
+      <button class="btn-decline" (click)="declineInvite()">Decline</button>
+    </div>
+  </div>
+}
+
 <router-outlet />
 

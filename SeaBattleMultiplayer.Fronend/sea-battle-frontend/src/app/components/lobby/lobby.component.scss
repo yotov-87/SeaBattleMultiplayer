@@ -1,0 +1,273 @@
+.lobby-page {
+  padding: 2rem;
+  height: calc(100vh - 60px);
+  box-sizing: border-box;
+}
+
+.creating-msg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 1.2rem;
+  color: #888;
+}
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.lobby-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 1.5rem;
+  height: 100%;
+
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
+
+/* ── Shared panel base ───────────────────────────────────────── */
+.invite-panel,
+.room-panel {
+  background: #12122a;
+  border: 1px solid #1e1e3f;
+  border-radius: 12px;
+  padding: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-title {
+  font-size: 1rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 0.25rem;
+  color: #e0e0e0;
+
+  .room-id {
+    font-weight: 400;
+    font-size: 0.8rem;
+    color: #666;
+    margin-left: 0.5rem;
+  }
+}
+
+.panel-sub {
+  font-size: 0.8rem;
+  color: #555;
+  margin: 0 0 1rem;
+}
+
+.empty-msg {
+  color: #555;
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 1.5rem 0;
+}
+
+/* ── Invite panel ────────────────────────────────────────────── */
+.invite-panel {
+  overflow-y: auto;
+}
+
+.player-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  margin-bottom: 0.4rem;
+  background: #0d2137;
+
+  .player-info {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+
+    .name {
+      font-size: 0.9rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2ecc71;
+  flex-shrink: 0;
+}
+
+.friend-badge {
+  font-size: 0.68rem;
+  background: #1a5276;
+  color: #7fb3d3;
+  padding: 0.1rem 0.4rem;
+  border-radius: 20px;
+  flex-shrink: 0;
+}
+
+/* ── Room panel ──────────────────────────────────────────────── */
+.room-panel {
+  gap: 1rem;
+}
+
+.room-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.room-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.members-list {
+  background: #0a0a1a;
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+
+  .members-label {
+    font-size: 0.75rem;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0 0 0.5rem;
+  }
+
+  .member-row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.3rem 0;
+    font-size: 0.9rem;
+    color: #c0d8f0;
+  }
+
+  .you-badge {
+    font-size: 0.68rem;
+    background: #1a3a1a;
+    color: #2ecc71;
+    padding: 0.1rem 0.4rem;
+    border-radius: 20px;
+  }
+}
+
+/* ── Chat ─────────────────────────────────────────────────────── */
+.chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  background: #0a0a1a;
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.chat-msg {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+
+  .chat-sender {
+    font-weight: 600;
+    color: #7fb3d3;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+
+  .chat-text {
+    color: #d0d0d0;
+    font-size: 0.9rem;
+    word-break: break-word;
+  }
+
+  .chat-time {
+    font-size: 0.72rem;
+    color: #555;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 0.5rem;
+
+  .chat-input {
+    flex: 1;
+    padding: 0.5rem 0.8rem;
+    background: #0d0d20;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 0.9rem;
+    outline: none;
+
+    &:focus { border-color: #3498db; }
+  }
+}
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+.btn {
+  padding: 0.35rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.btn-invite {
+  border-color: #3498db;
+  color: #3498db;
+  background: transparent;
+
+  &:hover { background: #3498db; color: #fff; }
+}
+
+.btn-send {
+  background: #3498db;
+  color: #fff;
+  border-color: #3498db;
+
+  &:hover { background: #2980b9; }
+}
+
+.btn-start {
+  background: #27ae60;
+  color: #fff;
+  border-color: #27ae60;
+  font-weight: 600;
+
+  &:hover { background: #1e8449; }
+}
+
+.btn-leave {
+  border-color: #e74c3c;
+  color: #e74c3c;
+  background: transparent;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.75rem;
+
+  &:hover { background: #e74c3c; color: #fff; }
+}
