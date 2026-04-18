@@ -1,6 +1,297 @@
-:host {
-  display: block;
+// ─── Variables ────────────────────────────────────────────────────────────────
+$cell:   36px;
+$gap:    2px;
+$bg:     #0a1628;
+$surf:   #0d1f3c;
+$surf2:  #132237;
+$border: #1e3a5f;
+$text:   #e0e8f0;
+$accent: #5dade2;
+
+:host { display: block; }
+
+// ─── Page shell ───────────────────────────────────────────────────────────────
+.battle-page {
+  min-height: 100vh;
+  background: $bg;
+  color: $text;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Segoe UI', sans-serif;
 }
+
+// ─── Header ───────────────────────────────────────────────────────────────────
+.battle-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 24px;
+  background: $surf;
+  border-bottom: 1px solid $border;
+  flex-wrap: wrap;
+
+  h1    { margin: 0; font-size: 1.15rem; color: $accent; }
+  .room-info { font-size: .85rem; color: #7f8c8d; }
+  .room-id   { font-weight: 700; color: #aeb6bf; }
+}
+
+.turn-badge {
+  padding: 5px 12px;
+  border-radius: 20px;
+  background: $surf2;
+  border: 1px solid $border;
+  font-size: .85rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  &.my-turn {
+    background: #0d2d0d;
+    border-color: #27ae60;
+    color: #58d68d;
+    font-weight: 700;
+  }
+  &.winner { background: #2d2200; border-color: #f1c40f; color: #f9e79f; }
+}
+
+.turn-timer {
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.08);
+  font-weight: 700;
+  &.urgent { color: #e74c3c; }
+}
+
+.auto-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: .83rem;
+  input { cursor: pointer; accent-color: $accent; }
+}
+
+.btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: .83rem;
+  transition: filter .15s;
+  &:hover { filter: brightness(1.2); }
+}
+.btn-leave { background: #922b21; color: #fff; margin-left: auto; }
+.btn-send  { background: $accent;  color: $bg; }
+
+// ─── Main layout ──────────────────────────────────────────────────────────────
+.battle-layout {
+  display: flex;
+  gap: 10px;
+  padding: 16px 20px;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+// ─── Board section ────────────────────────────────────────────────────────────
+.board-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.board-title {
+  margin: 0;
+  font-size: .9rem;
+  color: $accent;
+  text-align: center;
+}
+
+.grid-area {
+  border: 2px solid $border;
+  border-radius: 6px;
+  padding: 4px;
+  background: $surf;
+
+  &.active-turn {
+    border-color: #27ae60;
+    box-shadow: 0 0 14px rgba(39,174,96,.35);
+  }
+}
+
+.grid-col-labels {
+  display: flex;
+  padding-left: $cell + $gap;
+  span {
+    width: $cell;
+    text-align: center;
+    font-size: .66rem;
+    color: #5d6d7e;
+    margin: 0 ($gap / 2);
+  }
+}
+
+.grid-row {
+  display: flex;
+  align-items: center;
+  gap: $gap;
+  margin: ($gap / 2) 0;
+}
+
+.row-label {
+  width: $cell;
+  text-align: center;
+  font-size: .66rem;
+  color: #5d6d7e;
+}
+
+// ─── Cells ────────────────────────────────────────────────────────────────────
+.grid-cell {
+  width:  $cell;
+  height: $cell;
+  border-radius: 3px;
+  background: #0a1a2a;
+  border: 1px solid #16304a;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  transition: background .1s, transform .1s;
+
+  // ── My board ────────────────────────────────
+  &.cell-ship {
+    background: #2e4053;
+    border-color: #4a6278;
+  }
+
+  &.cell-hit-on-me {
+    background: #7b241c;
+    border-color: #e74c3c;
+    &::after { content: '✕'; position: absolute; color: #f1948a; }
+  }
+
+  &.cell-sunk-on-me {
+    background: #641010;
+    border-color: #e74c3c;
+    &::after { content: '✕'; position: absolute; color: #f5b7b1; }
+  }
+
+  &.cell-miss-on-me {
+    background: #0e2233;
+    &::after { content: '·'; position: absolute; font-size: 26px; line-height: 1; color: #85c1e9; }
+  }
+
+  // ── Enemy board ─────────────────────────────
+  &.cell-unknown { background: #0a1a2a; }
+
+  &.cell-miss {
+    background: #0e2233;
+    &::after { content: '·'; position: absolute; font-size: 26px; line-height: 1; color: #85c1e9; }
+  }
+
+  &.cell-sunk {
+    background: #641010;
+    border-color: #e74c3c;
+    &::after { content: '✕'; position: absolute; color: #f5b7b1; }
+  }
+}
+
+// Enemy hit (different look from "hit on me")
+.enemy-cell.cell-hit {
+  background: #a04000;
+  border-color: #e67e22;
+  &::after { content: '💥'; position: absolute; font-size: 15px; }
+}
+
+.clickable {
+  cursor: crosshair;
+  &:hover {
+    background: #0e2f50;
+    transform: scale(1.07);
+    border-color: $accent;
+  }
+}
+
+// ─── Middle panel ─────────────────────────────────────────────────────────────
+.middle-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 42px;
+  min-width: 90px;
+}
+
+.target-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.target-label { margin: 0 0 4px; font-size: .78rem; color: #5d6d7e; }
+
+.target-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid $border;
+  background: $surf2;
+  color: $text;
+  cursor: pointer;
+  font-size: .83rem;
+  transition: all .15s;
+
+  &.active { background: #0e3050; border-color: $accent; color: $accent; }
+  &:hover:not(.active) { background: #1a2e4a; }
+}
+
+.no-targets { font-size: .78rem; color: #5d6d7e; }
+
+// ─── Chat bar ─────────────────────────────────────────────────────────────────
+.chat-bar {
+  background: $surf;
+  border-top: 1px solid $border;
+  padding: 8px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-messages {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  max-height: 60px;
+}
+
+.chat-msg {
+  font-size: .8rem;
+  color: #aeb6bf;
+  b { color: $accent; margin-right: 3px; }
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input {
+  flex: 1;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid $border;
+  background: $surf2;
+  color: $text;
+  font-size: .83rem;
+  &:focus { outline: none; border-color: $accent; }
+}
+
 
 .battle-page {
   min-height: 100vh;

@@ -296,7 +296,11 @@ export class PlacementComponent implements OnInit, OnDestroy {
     if (!this.allPlaced()) this.autoPlace();
     this.isReady = true;
     this.clearCountdown();
-    this.signalR.playerReady();
+    // Send fleet (with only the fields the server needs) + mark ready
+    const ships = this.placedShips().map(s => ({
+      size: s.size, row: s.row, col: s.col, horizontal: s.horizontal
+    }));
+    this.signalR.playerReady(ships);
   }
 
   shipCells(size: number): number[] {

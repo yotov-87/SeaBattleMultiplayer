@@ -1,7 +1,8 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using SeaBattleMultiplayer.Backend.Data;
+using SeaBattleMultiplayer.Backend.DTOs;
 using SeaBattleMultiplayer.Backend.Services;
 
 namespace SeaBattleMultiplayer.Backend.Hubs;
@@ -10,12 +11,14 @@ namespace SeaBattleMultiplayer.Backend.Hubs;
 public class GameHub : Hub
 {
     private readonly OnlineUsersService _onlineUsers;
+    private readonly GameStateService _gameState;
     private readonly AppDbContext _db;
     private readonly IHubContext<GameHub> _hubContext;
 
-    public GameHub(OnlineUsersService onlineUsers, AppDbContext db, IHubContext<GameHub> hubContext)
+    public GameHub(OnlineUsersService onlineUsers, GameStateService gameState, AppDbContext db, IHubContext<GameHub> hubContext)
     {
         _onlineUsers = onlineUsers;
+        _gameState = gameState;
         _db = db;
         _hubContext = hubContext;
     }
@@ -26,16 +29,14 @@ public class GameHub : Hub
     private string GetUsername() =>
         Context.User!.FindFirstValue(ClaimTypes.Name)!;
 
-    // ── Connection lifecycle ───────────────────────────────────────────────
+    // в”Ђв”Ђ Connection lifecycle в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
     public override async Task OnConnectedAsync()
     {
         var userId = GetUserId();
         var username = GetUsername();
 
-        // Cancel any pending disconnect grace timer for this user (handles browser refresh)
         _onlineUsers.CancelDisconnectGrace(userId);
-
         _onlineUsers.AddUser(userId, Context.ConnectionId);
         await Clients.Others.SendAsync("UserOnline", userId, username);
         await Clients.Caller.SendAsync("OnlineUsers", _onlineUsers.GetOnlineUserIds());
@@ -48,7 +49,6 @@ public class GameHub : Hub
         var userId = GetUserId();
         var username = GetUsername();
 
-        // Leave room on disconnect
         var roomId = _onlineUsers.RemoveFromRoom(userId);
         if (roomId is not null)
         {
@@ -58,9 +58,6 @@ public class GameHub : Hub
 
         _onlineUsers.RemoveUser(userId);
 
-        // Grace period: wait 3s before broadcasting UserOffline.
-        // If the user refreshed the browser they will reconnect within this window
-        // and CancelDisconnectGrace will abort the broadcast, preventing UI flicker.
         var cts = _onlineUsers.StartDisconnectGrace(userId);
         _ = Task.Run(async () =>
         {
@@ -69,35 +66,30 @@ public class GameHub : Hub
                 await Task.Delay(3000, cts.Token);
                 await _hubContext.Clients.All.SendAsync("UserOffline", userId);
             }
-            catch (OperationCanceledException) { /* user reconnected in time — no broadcast needed */ }
+            catch (OperationCanceledException) { }
         });
 
         await base.OnDisconnectedAsync(exception);
     }
 
-    // ── Presence ───────────────────────────────────────────────────────────
+    // в”Ђв”Ђ Presence в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
     public async Task SendGameInvite(int targetUserId, string roomId)
     {
         var senderId = GetUserId();
         var senderUsername = GetUsername();
-
         var connectionId = _onlineUsers.GetConnectionId(targetUserId);
         if (connectionId is not null)
-        {
-            await Clients.Client(connectionId)
-                .SendAsync("GameInviteReceived", senderId, senderUsername, roomId);
-        }
+            await Clients.Client(connectionId).SendAsync("GameInviteReceived", senderId, senderUsername, roomId);
     }
 
-    // ── Lobby ──────────────────────────────────────────────────────────────
+    // в”Ђв”Ђ Lobby в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
     public async Task CreateGame()
     {
         var userId = GetUserId();
         var username = GetUsername();
 
-        // Leave any existing room first
         var existingRoom = _onlineUsers.RemoveFromRoom(userId);
         if (existingRoom is not null)
         {
@@ -108,10 +100,7 @@ public class GameHub : Hub
         var roomId = _onlineUsers.CreateRoom(userId, username);
         await Groups.AddToGroupAsync(Context.ConnectionId, $"room-{roomId}");
 
-        var members = _onlineUsers.GetRoomMembers(roomId)
-            .Select(m => new { id = m.Id, username = m.Username })
-            .ToList();
-
+        var members = _onlineUsers.GetRoomMembers(roomId).Select(m => new { id = m.Id, username = m.Username }).ToList();
         await Clients.Caller.SendAsync("RoomCreated", roomId);
         await Clients.Caller.SendAsync("LobbyState", members);
     }
@@ -121,7 +110,6 @@ public class GameHub : Hub
         var userId = GetUserId();
         var username = GetUsername();
 
-        // Leave old room if any
         var existingRoom = _onlineUsers.RemoveFromRoom(userId);
         if (existingRoom is not null)
         {
@@ -136,14 +124,9 @@ public class GameHub : Hub
         }
 
         await Groups.AddToGroupAsync(Context.ConnectionId, $"room-{roomId}");
-
-        // Notify everyone already in the room
         await Clients.Group($"room-{roomId}").SendAsync("UserJoinedLobby", userId, username);
 
-        // Send full current member list to the new joiner
-        var members = _onlineUsers.GetRoomMembers(roomId)
-            .Select(m => new { id = m.Id, username = m.Username })
-            .ToList();
+        var members = _onlineUsers.GetRoomMembers(roomId).Select(m => new { id = m.Id, username = m.Username }).ToList();
         await Clients.Caller.SendAsync("LobbyState", members);
         await Clients.Caller.SendAsync("RoomJoined", roomId);
     }
@@ -153,33 +136,27 @@ public class GameHub : Hub
         var username = GetUsername();
         var connectionId = _onlineUsers.GetConnectionId(hostUserId);
         if (connectionId is not null)
-        {
             await Clients.Client(connectionId).SendAsync("InviteDeclined", username);
-        }
     }
 
     public async Task SendLobbyChat(string roomId, string message)
     {
         var userId = GetUserId();
         var username = GetUsername();
-
         if (_onlineUsers.GetUserRoom(userId) != roomId) return;
-
-        await Clients.Group($"room-{roomId}")
-            .SendAsync("LobbyChatMessage", userId, username, message, DateTime.UtcNow);
+        await Clients.Group($"room-{roomId}").SendAsync("LobbyChatMessage", userId, username, message, DateTime.UtcNow);
     }
 
     public async Task LeaveLobby(string roomId)
     {
         var userId = GetUserId();
         var username = GetUsername();
-
         _onlineUsers.RemoveFromRoom(userId);
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"room-{roomId}");
         await Clients.Group($"room-{roomId}").SendAsync("UserLeftLobby", userId, username);
     }
 
-    // ── Game phase ─────────────────────────────────────────────────────────
+    // в”Ђв”Ђ Placement phase в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
     public async Task StartGame()
     {
@@ -187,33 +164,79 @@ public class GameHub : Hub
         var roomId = _onlineUsers.GetUserRoom(userId);
         if (roomId is null || _onlineUsers.GetRoomHost(roomId) != userId) return;
 
+        // Init game state now so fleets can be stored during placement
+        var members = _onlineUsers.GetRoomMembers(roomId).ToDictionary(m => m.Id, m => m.Username);
+        _gameState.InitGame(roomId, members);
+
         var cts = _onlineUsers.InitPlacementTimer(roomId);
         await Clients.Group($"room-{roomId}").SendAsync("GameStarted");
 
-        // 25-second placement timer — fires AllReady if players haven't all readied up
         _ = Task.Run(async () =>
         {
             try
             {
                 await Task.Delay(30_000, cts.Token);
-                await _hubContext.Clients.Group($"room-{roomId}").SendAsync("AllReady");
+                await ForceBattleStart(roomId);
             }
-            catch (OperationCanceledException) { /* all players readied before timer */ }
+            catch (OperationCanceledException) { }
         });
     }
 
-    public async Task PlayerReady()
+    public async Task PlayerReady(List<ShipDto> ships)
     {
         var userId = GetUserId();
         var roomId = _onlineUsers.GetUserRoom(userId);
         if (roomId is null) return;
 
+        _gameState.SubmitFleet(roomId, userId, ships);
+
         bool allReady = _onlineUsers.MarkReady(roomId, userId);
         if (allReady)
         {
             _onlineUsers.CancelPlacementTimer(roomId);
-            await Clients.Group($"room-{roomId}").SendAsync("AllReady");
+            await BeginBattle(roomId);
         }
+    }
+
+    // Called either when all submit fleets OR when the 30s timer fires
+    private async Task ForceBattleStart(string roomId)
+    {
+        // Assign empty fleet to anyone who disconnected or didn't submit
+        var state = _gameState.GetState(roomId);
+        if (state is null) return;
+        foreach (var id in state.PlayerNames.Keys)
+        {
+            if (!state.Fleets.ContainsKey(id))
+                _gameState.SubmitFleet(roomId, id, []);
+        }
+        await BeginBattle(roomId);
+    }
+
+    private async Task BeginBattle(string roomId)
+    {
+        await _hubContext.Clients.Group($"room-{roomId}").SendAsync("AllReady");
+
+        var turn = _gameState.GetCurrentTurn(roomId);
+        if (turn is null) return;
+
+        await _hubContext.Clients.Group($"room-{roomId}").SendAsync("TurnStarted", turn.PlayerId, turn.Username);
+        StartTurnTimer(roomId, turn.PlayerId, turn.Username);
+    }
+
+    // в”Ђв”Ђ Battle phase в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+
+    public async Task FireShot(int targetId, int row, int col)
+    {
+        var userId = GetUserId();
+        var roomId = _onlineUsers.GetUserRoom(userId);
+        if (roomId is null) return;
+
+        // Only the current turn player can fire
+        var turn = _gameState.GetCurrentTurn(roomId);
+        if (turn?.PlayerId != userId) return;
+
+        _gameState.CancelTurnTimer(roomId);
+        await ProcessAndBroadcastShot(roomId, userId, targetId, row, col, useHubContext: false);
     }
 
     public async Task SendBattleChat(string roomId, string message)
@@ -221,7 +244,56 @@ public class GameHub : Hub
         var userId = GetUserId();
         var username = GetUsername();
         if (_onlineUsers.GetUserRoom(userId) != roomId) return;
-        await Clients.Group($"room-{roomId}")
-            .SendAsync("BattleChatMessage", userId, username, message, DateTime.UtcNow);
+        await Clients.Group($"room-{roomId}").SendAsync("BattleChatMessage", userId, username, message, DateTime.UtcNow);
     }
+
+    // в”Ђв”Ђ Shared helpers в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+
+    private async Task ProcessAndBroadcastShot(string roomId, int shooterId, int targetId, int row, int col, bool useHubContext)
+    {
+        var (result, eliminated, gameOver, winnerId) = _gameState.ProcessShot(roomId, shooterId, targetId, row, col);
+        if (result is null) return;
+
+        await Send($"room-{roomId}", "ShotFired", result, useHubContext);
+
+        if (eliminated)
+            await Send($"room-{roomId}", "PlayerEliminated", targetId, useHubContext);
+
+        if (gameOver && winnerId.HasValue)
+        {
+            var winnerName = _gameState.GetState(roomId)?.PlayerNames.GetValueOrDefault(winnerId.Value, "?") ?? "?";
+            await Send($"room-{roomId}", "BattleOver", new { winnerId = winnerId.Value, winnerUsername = winnerName }, useHubContext);
+            return;
+        }
+
+        var nextTurn = _gameState.AdvanceTurn(roomId);
+        if (nextTurn is null) return;
+
+        await Send($"room-{roomId}", "TurnStarted", new { playerId = nextTurn.PlayerId, username = nextTurn.Username }, useHubContext);
+        StartTurnTimer(roomId, nextTurn.PlayerId, nextTurn.Username);
+    }
+
+    private void StartTurnTimer(string roomId, int currentPlayerId, string currentPlayerUsername)
+    {
+        var cts = _gameState.SetTurnTimer(roomId);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(15_000, cts.Token);
+                var randomShot = _gameState.GetRandomShot(roomId, currentPlayerId);
+                if (randomShot is null) return;
+                var (targetId, row, col) = randomShot.Value;
+                await ProcessAndBroadcastShot(roomId, currentPlayerId, targetId, row, col, useHubContext: true);
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
+
+    /// <summary>Sends a hub event to a group using either the hub context (background) or the hub clients (request).</summary>
+    private Task Send(string group, string method, object? arg, bool useHubContext) =>
+        useHubContext
+            ? _hubContext.Clients.Group(group).SendAsync(method, arg)
+            : Clients.Group(group).SendAsync(method, arg);
 }
+

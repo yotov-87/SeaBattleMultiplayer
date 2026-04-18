@@ -22,3 +22,22 @@ export interface ChatMessage {
   text: string;
   timestamp: Date;
 }
+
+/** Ship as placed on the grid — used by PlacementComponent and SignalRService */
+export interface ShipPlacement {
+  size: number;
+  row: number;
+  col: number;
+  horizontal: boolean;
+}
+
+export type ShotResultType = 'miss' | 'hit' | 'sunk';
+
+export interface BattleShotResult {
+  shooterId: number;
+  targetId: number;
+  row: number;
+  col: number;
+  result: ShotResultType;
+  sunkCells?: { row: number; col: number }[];
+}
