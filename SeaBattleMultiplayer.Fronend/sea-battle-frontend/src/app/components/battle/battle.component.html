@@ -65,7 +65,7 @@
 
     <!-- Sea grid -->
     <div class="sea-wrapper" #seaContainer>
-      <div class="sea-grid" [style.--cell.px]="CELL_PX">
+      <div class="sea-grid" [style]="{'--cell': CELL_PX + 'px', '--cols': SEA}">
         @for (row of seaGrid(); track $index; let r = $index) {
           @for (cell of row; track $index; let c = $index) {
             <div

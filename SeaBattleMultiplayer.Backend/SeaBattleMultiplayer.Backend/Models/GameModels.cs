@@ -42,9 +42,9 @@ public class PlayerFleet
 public class GameRoomState
 {
     // -- Shared sea dimensions -------------------------------------------------
-    public const int SeaSize   = 50;
+    public int SeaSize   { get; set; } = 50;
     public const int FleetArea = 10;
-    public const int MaxOffset = SeaSize - FleetArea; // 40
+    public int MaxOffset => SeaSize - FleetArea;
 
     /// <summary>DB primary key - set once BeginBattle persists the record.</summary>
     public int DbGameId { get; set; }

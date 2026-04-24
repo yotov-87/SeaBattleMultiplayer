@@ -163,8 +163,8 @@
 
 .sea-grid {
   display: grid;
-  grid-template-columns: repeat(50, var(--cell, 11px));
-  grid-template-rows:    repeat(50, var(--cell, 11px));
+  grid-template-columns: repeat(var(--cols, 50), var(--cell, 11px));
+  grid-template-rows:    repeat(var(--cols, 50), var(--cell, 11px));
   gap: 0;
 }
 

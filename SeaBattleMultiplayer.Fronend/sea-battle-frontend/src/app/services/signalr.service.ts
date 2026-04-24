@@ -41,6 +41,7 @@ export class SignalRService implements OnDestroy {
   readonly battleChatMessages = signal<ChatMessage[]>([]);
 
   readonly fleetPositions = signal<Map<number, { offsetRow: number; offsetCol: number }>>(new Map());
+  readonly seaSize = signal<number>(50);
   // в”Ђв”Ђ Connection в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   startConnection(): Promise<void> {
@@ -99,6 +100,7 @@ export class SignalRService implements OnDestroy {
       currentTurnPlayerId: number | null;
       currentTurnUsername: string | null;
       fleetPositions: FleetPosition[] | null;
+      seaSize: number;
       myFleet: ShipPlacement[] | null;
     }) => {
       this.lobbyRoomId.set(data.roomId);
@@ -110,6 +112,7 @@ export class SignalRService implements OnDestroy {
       this.currentTurnUsername.set(data.currentTurnUsername ?? '');
       this.battleWinnerId.set(null);
       this.battleWinnerUsername.set(null);
+      if (data.seaSize) this.seaSize.set(data.seaSize);
       if (data.fleetPositions) {
         const map = new Map<number, { offsetRow: number; offsetCol: number }>();
         for (const p of data.fleetPositions) map.set(p.playerId, { offsetRow: p.offsetRow, offsetCol: p.offsetCol });
@@ -149,7 +152,8 @@ export class SignalRService implements OnDestroy {
     });
 
     // Placement
-    this.hub.on('GameStarted', () => {
+    this.hub.on('GameStarted', (size: number) => {
+      this.seaSize.set(size ?? 50);
       this.gameStarted$.next();
     });
 
@@ -230,6 +234,7 @@ export class SignalRService implements OnDestroy {
     this.battleWinnerId.set(null);
     this.battleWinnerUsername.set(null);
     this.fleetPositions.set(new Map());
+    this.seaSize.set(50);
   }
 
   ngOnDestroy(): void {
@@ -289,10 +294,11 @@ export class SignalRService implements OnDestroy {
     this.battleWinnerId.set(null);
     this.battleWinnerUsername.set(null);
     this.fleetPositions.set(new Map());
+    this.seaSize.set(50);
   }
 
-  startGame(): void {
-    this.hub?.invoke('StartGame');
+  startGame(seaSize: number): void {
+    this.hub?.invoke('StartGame', seaSize);
   }
 
   /** Submit fleet and mark player as ready. */

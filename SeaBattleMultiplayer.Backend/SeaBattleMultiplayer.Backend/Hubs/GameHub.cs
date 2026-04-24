@@ -126,6 +126,7 @@ public class GameHub : Hub
                 currentTurnPlayerId  = turn?.PlayerId,
                 currentTurnUsername  = turn?.Username,
                 fleetPositions       = fleetPositions,
+                seaSize              = state.SeaSize,
                 myFleet = state.Fleets.TryGetValue(userId, out var myFleet)
                     ? myFleet.Ships.Select(ship => new
                       {
@@ -294,17 +295,17 @@ public class GameHub : Hub
 
     // ── Placement phase ────────────────────────────────────────────────────
 
-    public async Task StartGame()
+    public async Task StartGame(int seaSize = 50)
     {
         var userId = GetUserId();
         var roomId = _onlineUsers.GetUserRoom(userId);
         if (roomId is null || _onlineUsers.GetRoomHost(roomId) != userId) return;
 
         var members = _onlineUsers.GetRoomMembers(roomId).ToDictionary(m => m.Id, m => m.Username);
-        _gameState.InitGame(roomId, members);
+        _gameState.InitGame(roomId, members, seaSize);
 
         var cts = _onlineUsers.InitPlacementTimer(roomId);
-        await Clients.Group($"room-{roomId}").SendAsync("GameStarted");
+        await Clients.Group($"room-{roomId}").SendAsync("GameStarted", seaSize);
 
         _ = Task.Run(async () =>
         {

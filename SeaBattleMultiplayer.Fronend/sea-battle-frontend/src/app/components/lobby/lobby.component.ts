@@ -24,6 +24,16 @@ export class LobbyComponent implements OnInit, OnDestroy {
   private readonly allPlayers = signal<Player[]>([]);
   chatInput = '';
   isCreating = false;
+  autoSeaSize = true;
+  manualSeaSize = 30;
+
+  readonly effectiveSeaSize = computed(() => {
+    if (this.autoSeaSize) {
+      const n = this.signalR.lobbyMembers().length;
+      return Math.max(20, n * 10 + 10);
+    }
+    return Math.max(20, Math.min(this.manualSeaSize, 200));
+  });
 
   private isNavigatingToGame = false;
   private sub = new Subscription();
@@ -90,7 +100,7 @@ export class LobbyComponent implements OnInit, OnDestroy {
   }
 
   startGame(): void {
-    this.signalR.startGame();
+    this.signalR.startGame(this.effectiveSeaSize());
   }
 
   sendChat(): void {

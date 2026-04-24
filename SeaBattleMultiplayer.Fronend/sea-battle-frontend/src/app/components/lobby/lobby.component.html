@@ -39,6 +39,23 @@
           </h2>
           <div class="room-actions">
             @if (signalR.isHost()) {
+              <div class="sea-size-control">
+                <label class="sea-size-label">
+                  <input type="checkbox" [(ngModel)]="autoSeaSize" />
+                  Auto size
+                </label>
+                @if (autoSeaSize) {
+                  <span class="sea-size-display">{{ effectiveSeaSize() }}×{{ effectiveSeaSize() }}</span>
+                } @else {
+                  <input
+                    class="sea-size-input"
+                    type="number"
+                    [(ngModel)]="manualSeaSize"
+                    min="20" max="200" step="5"
+                  />
+                  <span class="sea-size-display">{{ effectiveSeaSize() }}×{{ effectiveSeaSize() }}</span>
+                }
+              </div>
               <button class="btn btn-start" (click)="startGame()">&#9654; Start Game</button>
             }
             <button class="btn btn-leave" (click)="leaveLobby()">Leave</button>

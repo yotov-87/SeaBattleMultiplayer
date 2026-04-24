@@ -33,13 +33,14 @@ export class BattleComponent implements OnInit, OnDestroy, AfterViewChecked {
   @ViewChild("seaContainer") seaContainerRef?: ElementRef<HTMLElement>;
 
   // ── Constants ─────────────────────────────────────────────────────────────
-  readonly SEA        = 50;
   readonly CELL_PX    = 11;    // px per cell
   readonly FOG_RADIUS = 12;    // Euclidean fog radius in sea cells
   readonly RANGE      = 2;     // Chebyshev gap to allow shooting
 
-  readonly SEA_ROWS   = Array.from({ length: 50 }, (_, i) => i);
-  readonly SEA_COLS   = Array.from({ length: 50 }, (_, i) => i);
+  get SEA() { return this.signalR.seaSize(); }
+
+  readonly seaRows = computed(() => Array.from({ length: this.signalR.seaSize() }, (_, i) => i));
+  readonly seaCols = computed(() => Array.from({ length: this.signalR.seaSize() }, (_, i) => i));
 
   // ── UI state ──────────────────────────────────────────────────────────────
   chatInput    = "";

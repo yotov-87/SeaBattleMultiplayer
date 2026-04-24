@@ -12,9 +12,10 @@ public class GameStateService
     // Init
     // -------------------------------------------------------------------------
 
-    public void InitGame(string roomId, Dictionary<int, string> playerNames)
+    public void InitGame(string roomId, Dictionary<int, string> playerNames, int seaSize = 50)
     {
         var state = new GameRoomState();
+        state.SeaSize = Math.Max(GameRoomState.FleetArea * 2, Math.Min(seaSize, 200));
         foreach (var (id, name) in playerNames)
             state.PlayerNames[id] = name;
 
@@ -30,11 +31,12 @@ public class GameStateService
     /// <summary>Assigns starting sea positions at spread-out corners.</summary>
     private static void InitFleetPositions(GameRoomState state)
     {
-        // Corners / mid-edges for up to 8 players on a 50x50 sea
+        int m = state.MaxOffset;
+        int h = m / 2;
         (int Row, int Col)[] starts =
         [
-            ( 0,  0), (40, 40), ( 0, 40), (40,  0),
-            ( 0, 20), (40, 20), (20,  0), (20, 40)
+            (  0,   0), (  m,   m), (  0,   m), (  m,   0),
+            (  0,   h), (  m,   h), (  h,   0), (  h,   m)
         ];
 
         for (int i = 0; i < state.TurnOrder.Count; i++)
@@ -94,8 +96,8 @@ public class GameStateService
             _       => (r, c)
         };
 
-        nr = Math.Clamp(nr, 0, GameRoomState.MaxOffset);
-        nc = Math.Clamp(nc, 0, GameRoomState.MaxOffset);
+        nr = Math.Clamp(nr, 0, state.MaxOffset);
+        nc = Math.Clamp(nc, 0, state.MaxOffset);
 
         if (nr == r && nc == c) return (false, null);
 
