@@ -1,5 +1,5 @@
-// ─── Variables ────────────────────────────────────────────────────────────────
-$cell:    36px;   // enemy board (fixed)
+﻿// ─── Variables ────────────────────────────────────────────────────────────────
+$cell:    24px;   // enemy board cells (fixed, smaller to fit multiple boards)
 $gap:     2px;
 $bg:     #0a1628;
 $surf:   #0d1f3c;
@@ -30,7 +30,7 @@ $accent: #5dade2;
   border-bottom: 1px solid $border;
   flex-wrap: wrap;
 
-  h1    { margin: 0; font-size: 1.15rem; color: $accent; }
+  h1       { margin: 0; font-size: 1.15rem; color: $accent; }
   .room-info { font-size: .85rem; color: #7f8c8d; }
   .room-id   { font-weight: 700; color: #aeb6bf; }
 }
@@ -84,23 +84,74 @@ $accent: #5dade2;
 .btn-leave { background: #922b21; color: #fff; margin-left: auto; }
 .btn-send  { background: $accent;  color: $bg; }
 
+// ─── Mobile tab bar ───────────────────────────────────────────────────────────
+// Hidden on desktop; shown on small screens for board navigation
+.mobile-tabs {
+  display: none;
+
+  @media (max-width: 767px) {
+    display: flex;
+    overflow-x: auto;
+    gap: 6px;
+    padding: 8px 12px;
+    background: $surf;
+    border-bottom: 1px solid $border;
+    scrollbar-width: none;
+    &::-webkit-scrollbar { display: none; }
+  }
+}
+
+.tab-btn {
+  padding: 6px 16px;
+  border-radius: 20px;
+  border: 1px solid $border;
+  background: $surf2;
+  color: $text;
+  cursor: pointer;
+  font-size: .82rem;
+  white-space: nowrap;
+  transition: all .15s;
+
+  &.active {
+    background: #0e3050;
+    border-color: $accent;
+    color: $accent;
+    font-weight: 600;
+  }
+  &:hover:not(.active) { background: #1a2e4a; }
+}
+
 // ─── Main layout ──────────────────────────────────────────────────────────────
 .battle-layout {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   padding: 16px 20px;
   flex: 1;
   align-items: flex-start;
-  justify-content: center;
-  flex-wrap: wrap;
+  // Horizontal scroll on desktop so all boards are always reachable
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: $border transparent;
+
+  @media (max-width: 767px) {
+    overflow-x: hidden;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 12px;
+  }
 }
 
-// ─── Board section ────────────────────────────────────────────────────────────
+// ─── Board sections ───────────────────────────────────────────────────────────
 .board-section {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+
+  @media (max-width: 767px) {
+    &.mobile-hidden { display: none; }
+  }
 }
 
 .board-title {
@@ -116,10 +167,7 @@ $accent: #5dade2;
   gap: 8px;
 }
 
-.zoom-controls {
-  display: flex;
-  gap: 3px;
-}
+.zoom-controls { display: flex; gap: 3px; }
 
 .zoom-btn {
   width: 20px;
@@ -141,11 +189,31 @@ $accent: #5dade2;
   &:disabled { opacity: .35; cursor: default; }
 }
 
+// ─── Enemy section ────────────────────────────────────────────────────────────
+.enemy-section {
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 4px;
+  transition: background .15s;
+
+  &:hover:not(.selected-target) .grid-area { border-color: #2e5878; }
+
+  &.selected-target {
+    .board-title { color: #82e0aa; }
+    .grid-area {
+      border-color: #27ae60;
+      box-shadow: 0 0 14px rgba(39, 174, 96, .3);
+    }
+  }
+}
+
+// ─── Grid ─────────────────────────────────────────────────────────────────────
 .grid-area {
   border: 2px solid $border;
   border-radius: 6px;
   padding: 4px;
   background: $surf;
+  transition: border-color .2s, box-shadow .2s;
 
   &.active-turn {
     border-color: #27ae60;
@@ -190,52 +258,43 @@ $accent: #5dade2;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
   transition: background .1s, transform .1s;
 
-  // ── Enemy board states ───────────────────────
   &.cell-unknown { background: #0a1a2a; }
 
   &.cell-miss {
     background: #0c1e30;
-    &::after { content: '·'; position: absolute; font-size: 24px; line-height: 1; color: #4a6a88; }
+    &::after { content: '·'; position: absolute; font-size: 20px; line-height: 1; color: #4a6a88; }
   }
 
-  // Enemy hit → green X
   &.cell-hit {
     background: #145a32;
     border-color: #27ae60;
-    &::after { content: '✕'; position: absolute; font-size: 15px; font-weight: 700; color: #82e0aa; }
+    &::after { content: '✕'; position: absolute; font-size: 13px; font-weight: 700; color: #82e0aa; }
   }
 
-  // Enemy sunk → deep green X
   &.cell-sunk {
     background: #0b3d20;
     border-color: #1e8449;
-    &::after { content: '✕'; position: absolute; font-size: 15px; font-weight: 700; color: #abebc6; }
+    &::after { content: '✕'; position: absolute; font-size: 13px; font-weight: 700; color: #abebc6; }
   }
 }
 
-// ── My board — minimalistic, zoomable via --cell-me CSS variable ───────────────
+// ─── My board (zoomable) ─────────────────────────────────────────────────────
 .my-board .grid-cell {
   width:  var(--cell-me, 16px);
   height: var(--cell-me, 16px);
   font-size: 12px;
   border-color: #0f2030;
 
-  &.cell-ship {
-    background: #1e3248;
-    border-color: #2a4a6a;
-  }
+  &.cell-ship       { background: #1e3248; border-color: #2a4a6a; }
 
-  // Hit on me → red X
   &.cell-hit-on-me {
     background: #c0392b;
     border-color: #e74c3c;
     &::after { content: '✕'; position: absolute; font-size: 11px; font-weight: 700; color: #fadbd8; }
   }
 
-  // Sunk on me → deep red X
   &.cell-sunk-on-me {
     background: #922b21;
     border-color: #c0392b;
@@ -244,15 +303,15 @@ $accent: #5dade2;
 
   &.cell-miss-on-me {
     background: #0c1e30;
-    &::after { content: '·'; position: absolute; font-size: 18px; line-height: 1; color: #2e5878; }
+    &::after { content: '·'; position: absolute; font-size: 16px; line-height: 1; color: #2e5878; }
   }
 }
 
-// Adjust my-board labels to match dynamic cell size
 .my-board .grid-col-labels span { width: var(--cell-me, 16px); }
 .my-board .row-label            { width: var(--cell-me, 16px); }
 .my-board .grid-col-labels      { padding-left: calc(var(--cell-me, 16px) + #{$gap}); }
 
+// ─── Clickable enemy cell ─────────────────────────────────────────────────────
 .clickable {
   cursor: crosshair;
   &:hover {
@@ -262,39 +321,14 @@ $accent: #5dade2;
   }
 }
 
-// ─── Middle panel ─────────────────────────────────────────────────────────────
-.middle-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-top: 42px;
-  min-width: 90px;
+// ─── No opponents placeholder ─────────────────────────────────────────────────
+.no-opponents-msg {
+  color: #5d6d7e;
+  font-size: .9rem;
+  text-align: center;
+  padding: 40px 20px;
+  flex: 1;
 }
-
-.target-selector {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: center;
-}
-
-.target-label { margin: 0 0 4px; font-size: .78rem; color: #5d6d7e; }
-
-.target-btn {
-  padding: 6px 14px;
-  border-radius: 6px;
-  border: 1px solid $border;
-  background: $surf2;
-  color: $text;
-  cursor: pointer;
-  font-size: .83rem;
-  transition: all .15s;
-
-  &.active { background: #0e3050; border-color: $accent; color: $accent; }
-  &:hover:not(.active) { background: #1a2e4a; }
-}
-
-.no-targets { font-size: .78rem; color: #5d6d7e; }
 
 // ─── Chat bar ─────────────────────────────────────────────────────────────────
 .chat-bar {
@@ -322,10 +356,7 @@ $accent: #5dade2;
   b { color: $accent; margin-right: 3px; }
 }
 
-.chat-input-row {
-  display: flex;
-  gap: 8px;
-}
+.chat-input-row { display: flex; gap: 8px; }
 
 .chat-input {
   flex: 1;
@@ -336,173 +367,4 @@ $accent: #5dade2;
   color: $text;
   font-size: .83rem;
   &:focus { outline: none; border-color: $accent; }
-}
-
-
-.battle-page {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: #0a1628;
-  color: #e0e8f0;
-}
-
-// ── Header ──────────────────────────────────────────────────────────────────
-
-.battle-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1rem 2rem;
-  background: #0d1f3c;
-  border-bottom: 1px solid #1e3a5f;
-
-  h1 {
-    margin: 0;
-    font-size: 1.5rem;
-    color: #5dade2;
-    flex: 1;
-  }
-
-  .room-info {
-    font-size: 0.9rem;
-    color: #7f8c8d;
-
-    .room-id {
-      font-weight: 600;
-      color: #aeb6bf;
-    }
-  }
-}
-
-.btn {
-  padding: 0.4rem 1rem;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  font-size: 0.88rem;
-  font-weight: 600;
-  transition: background 0.2s;
-}
-
-.btn-leave {
-  background: #922b21;
-  color: #fff;
-  border-color: #922b21;
-
-  &:hover { background: #7b241c; }
-}
-
-.btn-send {
-  background: #2471a3;
-  color: #fff;
-  border-color: #2471a3;
-
-  &:hover { background: #1a5276; }
-}
-
-// ── Body ─────────────────────────────────────────────────────────────────────
-
-.battle-body {
-  display: flex;
-  flex: 1;
-  gap: 0;
-}
-
-// ── Board placeholder ─────────────────────────────────────────────────────────
-
-.board-placeholder {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #5d6d7e;
-  font-size: 1.1rem;
-  border-right: 1px solid #1e3a5f;
-}
-
-// ── Chat panel ────────────────────────────────────────────────────────────────
-
-.chat-panel {
-  width: 300px;
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid #1e3a5f;
-}
-
-.chat-title {
-  margin: 0;
-  padding: 0.8rem 1rem;
-  font-size: 1rem;
-  background: #0d1f3c;
-  border-bottom: 1px solid #1e3a5f;
-  color: #aeb6bf;
-}
-
-.chat-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.8rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-height: 0;
-}
-
-.chat-msg {
-  display: flex;
-  flex-direction: column;
-  background: #132237;
-  border-radius: 6px;
-  padding: 0.4rem 0.6rem;
-  font-size: 0.85rem;
-
-  &.own {
-    background: #1a3a5c;
-  }
-
-  .chat-sender {
-    font-weight: 600;
-    color: #5dade2;
-    font-size: 0.78rem;
-  }
-
-  .chat-text {
-    color: #d5d8dc;
-    word-break: break-word;
-  }
-
-  .chat-time {
-    font-size: 0.7rem;
-    color: #5d6d7e;
-    align-self: flex-end;
-  }
-}
-
-.empty-msg {
-  color: #5d6d7e;
-  font-size: 0.85rem;
-  text-align: center;
-  margin: auto;
-}
-
-.chat-input-row {
-  display: flex;
-  gap: 0.4rem;
-  padding: 0.6rem;
-  border-top: 1px solid #1e3a5f;
-  background: #0d1f3c;
-}
-
-.chat-input {
-  flex: 1;
-  background: #1a2e4a;
-  border: 1px solid #2c4a6e;
-  border-radius: 6px;
-  color: #e0e8f0;
-  padding: 0.4rem 0.6rem;
-  font-size: 0.88rem;
-  outline: none;
-
-  &:focus { border-color: #5dade2; }
 }

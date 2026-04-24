@@ -31,11 +31,23 @@
     <button class="btn btn-leave" (click)="leaveGame()">Leave</button>
   </div>
 
+  <!-- ── Mobile tab navigation ──────────────────────────────────────── -->
+  <div class="mobile-tabs">
+    <button class="tab-btn" [class.active]="activeMobileTab() === 'me'" (click)="setMobileTab('me')">
+      My Fleet
+    </button>
+    @for (opp of opponents(); track opp.id) {
+      <button class="tab-btn" [class.active]="activeMobileTab() === opp.id" (click)="setMobileTab(opp.id)">
+        {{ opp.username }}
+      </button>
+    }
+  </div>
+
   <!-- ── Main layout ─────────────────────────────────────────────────── -->
   <div class="battle-layout">
 
     <!-- MY BOARD -->
-    <section class="board-section">
+    <section class="board-section" [class.mobile-hidden]="activeMobileTab() !== 'me'">
       <div class="board-title-row">
         <h2 class="board-title">My Fleet</h2>
         <div class="zoom-controls">
@@ -64,54 +76,40 @@
       </div>
     </section>
 
-    <!-- DIVIDER / TARGET SELECTOR -->
-    <div class="middle-panel">
-      <div class="target-selector">
-        <p class="target-label">Target:</p>
-        @for (opp of opponents(); track opp.id) {
-          <button
-            class="target-btn"
-            [class.active]="selectedTarget() === opp.id"
-            (click)="selectTarget(opp.id)"
-          >{{ opp.username }}</button>
-        }
-        @if (opponents().length === 0) {
-          <span class="no-targets">No opponents</span>
-        }
-      </div>
-    </div>
-
-    <!-- ENEMY BOARD -->
-    <section class="board-section">
-      <h2 class="board-title">
-        @if (selectedTarget() !== null) {
-          {{ opponentName(selectedTarget()!) }}
-        } @else {
-          Select a target
-        }
-      </h2>
-      <div class="grid-area" [class.active-turn]="isMyTurn()">
-        <div class="grid-col-labels">
-          <span></span>
-          @for (c of COLS; track c) { <span>{{ c + 1 }}</span> }
-        </div>
-        @for (r of ROWS; track r) {
-          <div class="grid-row">
-            <span class="row-label">{{ ROW_LABELS[r] }}</span>
-            @for (c of COLS; track c) {
-              <div class="grid-cell enemy-cell"
-                [class.cell-unknown]="enemyBoard()[r][c] === 'unknown'"
-                [class.cell-miss]="enemyBoard()[r][c] === 'miss'"
-                [class.cell-hit]="enemyBoard()[r][c] === 'hit'"
-                [class.cell-sunk]="enemyBoard()[r][c] === 'sunk'"
-                [class.clickable]="isMyTurn() && enemyBoard()[r][c] === 'unknown'"
-                (click)="onEnemyCellClick(r, c)"
-              ></div>
-            }
+    <!-- ENEMY BOARDS (one per opponent, all visible on desktop) -->
+    @for (opp of opponents(); track opp.id) {
+      <section class="board-section enemy-section"
+        [class.mobile-hidden]="activeMobileTab() !== opp.id"
+        [class.selected-target]="selectedTarget() === opp.id"
+        (click)="selectTarget(opp.id)">
+        <h2 class="board-title">{{ opp.username }}</h2>
+        <div class="grid-area" [class.active-turn]="isMyTurn() && selectedTarget() === opp.id">
+          <div class="grid-col-labels">
+            <span></span>
+            @for (c of COLS; track c) { <span>{{ c + 1 }}</span> }
           </div>
-        }
-      </div>
-    </section>
+          @for (r of ROWS; track r) {
+            <div class="grid-row">
+              <span class="row-label">{{ ROW_LABELS[r] }}</span>
+              @for (c of COLS; track c) {
+                <div class="grid-cell enemy-cell"
+                  [class.cell-unknown]="getBoardFor(opp.id)[r][c] === 'unknown'"
+                  [class.cell-miss]="getBoardFor(opp.id)[r][c] === 'miss'"
+                  [class.cell-hit]="getBoardFor(opp.id)[r][c] === 'hit'"
+                  [class.cell-sunk]="getBoardFor(opp.id)[r][c] === 'sunk'"
+                  [class.clickable]="isMyTurn() && getBoardFor(opp.id)[r][c] === 'unknown'"
+                  (click)="onEnemyCellClick(opp.id, r, c); $event.stopPropagation()"
+                ></div>
+              }
+            </div>
+          }
+        </div>
+      </section>
+    }
+
+    @if (opponents().length === 0) {
+      <div class="no-opponents-msg">No opponents yet</div>
+    }
 
   </div>
 

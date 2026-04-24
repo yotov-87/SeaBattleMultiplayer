@@ -29,6 +29,7 @@ export class BattleComponent implements OnInit, OnDestroy {
   chatInput     = '';
   autoShot      = false;
   selectedTarget  = signal<number | null>(null);
+  activeMobileTab = signal<number | 'me'>('me');
   myBoardCellSize = signal(16); // px — default small, user can zoom
 
   readonly MIN_CELL = 10;
@@ -36,6 +37,11 @@ export class BattleComponent implements OnInit, OnDestroy {
 
   zoomMyBoard(delta: number): void {
     this.myBoardCellSize.update(v => Math.min(this.MAX_CELL, Math.max(this.MIN_CELL, v + delta)));
+  }
+
+  setMobileTab(tab: number | 'me'): void {
+    this.activeMobileTab.set(tab);
+    if (tab !== 'me') this.selectedTarget.set(tab);
   }
 
   // 15-second turn timer (UI only — enforcement is on backend)
@@ -103,40 +109,47 @@ export class BattleComponent implements OnInit, OnDestroy {
     );
   });
 
-  // ── Enemy board: shots I fired at selected target ──────────────────────
+  // ── Enemy boards: one computed map for all opponents ────────────────────
 
-  readonly enemyBoard = computed((): EnemyCellState[][] => {
-    const targetId = this.selectedTarget();
-    if (targetId === null) return this.ROWS.map(() => this.COLS.map(() => 'unknown'));
+  readonly allEnemyBoards = computed((): Map<number, EnemyCellState[][]> => {
+    const myId     = this.myId();
+    const allShots = this.signalR.shotResults();
+    const result   = new Map<number, EnemyCellState[][]>();
 
-    // Only shots I personally fired at this target
-    const myShots = this.signalR.shotResults()
-      .filter(s => s.shooterId === this.myId() && s.targetId === targetId);
+    for (const member of this.signalR.lobbyMembers()) {
+      if (member.id === myId) continue;
 
-    // All ship cells that I personally caused to sink:
-    // a cell counts as 'sunk' if it appears in sunkCells of one of MY sinking shots
-    // AND I have a direct shot at that cell (so I don't reveal cells other players hit)
-    const myShotKeys = new Set<number>(myShots.map(s => s.row * 10 + s.col));
-    const sunkKeys = new Set<number>();
-    for (const shot of myShots) {
-      if (shot.sunkCells) {
-        for (const c of shot.sunkCells) {
-          const key = c.row * 10 + c.col;
-          if (myShotKeys.has(key)) sunkKeys.add(key);
+      const myShots    = allShots.filter(s => s.shooterId === myId && s.targetId === member.id);
+      const myShotKeys = new Set<number>(myShots.map(s => s.row * 10 + s.col));
+      const sunkKeys   = new Set<number>();
+
+      for (const shot of myShots) {
+        if (shot.sunkCells) {
+          for (const c of shot.sunkCells) {
+            const key = c.row * 10 + c.col;
+            if (myShotKeys.has(key)) sunkKeys.add(key);
+          }
         }
       }
-    }
 
-    return this.ROWS.map(r =>
-      this.COLS.map(c => {
-        const key = r * 10 + c;
-        if (sunkKeys.has(key)) return 'sunk';
-        const shot = myShots.find(s => s.row === r && s.col === c);
-        if (!shot) return 'unknown';
-        return shot.result === 'miss' ? 'miss' : 'hit';
-      })
-    );
+      const board = this.ROWS.map(r =>
+        this.COLS.map(c => {
+          const key = r * 10 + c;
+          if (sunkKeys.has(key)) return 'sunk' as EnemyCellState;
+          const shot = myShots.find(s => s.row === r && s.col === c);
+          if (!shot) return 'unknown' as EnemyCellState;
+          return shot.result === 'miss' ? 'miss' as EnemyCellState : 'hit' as EnemyCellState;
+        })
+      );
+      result.set(member.id, board);
+    }
+    return result;
   });
+
+  getBoardFor(opponentId: number): EnemyCellState[][] {
+    return this.allEnemyBoards().get(opponentId) ??
+      this.ROWS.map(() => this.COLS.map(() => 'unknown' as EnemyCellState));
+  }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -193,12 +206,10 @@ export class BattleComponent implements OnInit, OnDestroy {
     this.selectedTarget.set(id);
   }
 
-  onEnemyCellClick(r: number, c: number): void {
+  onEnemyCellClick(targetId: number, r: number, c: number): void {
     if (!this.isMyTurn()) return;
-    const targetId = this.selectedTarget();
-    if (targetId === null) return;
-    // Don't re-fire already-shot cells
-    if (this.enemyBoard()[r][c] !== 'unknown') return;
+    if (this.getBoardFor(targetId)[r][c] !== 'unknown') return;
+    this.selectedTarget.set(targetId);
     this.signalR.fireShot(targetId, r, c);
   }
 
