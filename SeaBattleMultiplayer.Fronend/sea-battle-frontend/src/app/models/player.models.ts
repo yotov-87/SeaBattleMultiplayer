@@ -23,7 +23,7 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
-/** Ship as placed on the grid — used by PlacementComponent and SignalRService */
+/** Ship as placed on the 10×10 grid — used by PlacementComponent and SignalRService */
 export interface ShipPlacement {
   size: number;
   row: number;
@@ -33,6 +33,7 @@ export interface ShipPlacement {
 
 export type ShotResultType = 'miss' | 'hit' | 'sunk';
 
+/** Row/Col are sea-absolute coordinates on the shared 50×50 sea. */
 export interface BattleShotResult {
   shooterId: number;
   targetId: number;
@@ -41,3 +42,13 @@ export interface BattleShotResult {
   result: ShotResultType;
   sunkCells?: { row: number; col: number }[];
 }
+
+/** Sea-absolute top-left offset of a player's 10×10 fleet area. */
+export interface FleetPosition {
+  playerId: number;
+  offsetRow: number;
+  offsetCol: number;
+}
+
+export type FleetMoveDirection = 'up' | 'down' | 'left' | 'right';
+

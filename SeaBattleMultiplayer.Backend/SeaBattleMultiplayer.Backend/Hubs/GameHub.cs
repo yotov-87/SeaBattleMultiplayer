@@ -61,24 +61,30 @@ public class GameHub : Hub
             await Clients.Caller.SendAsync("LobbyState", members);
 
             // Replay all moves so the frontend can reconstruct both boards
+            // Row/Col are sea-absolute; sunkCells are also sea-absolute.
             var myMoves = state.AllMoves
-                .Where(m => m.ShooterId == userId)   // only shots I fired
+                .Where(m => m.ShooterId == userId)
                 .Select(m =>
                 {
                     List<CellDto>? sunkCells = null;
                     if (m.Result == "sunk")
                     {
-                        var fleet = state.Fleets.GetValueOrDefault(m.TargetId);
+                        var fleet  = state.Fleets.GetValueOrDefault(m.TargetId);
+                        var offset = state.FleetOffsets.GetValueOrDefault(m.TargetId);
                         if (fleet is not null)
                         {
-                            var ship = fleet.Ships.FirstOrDefault(s => s.HitCells.Contains(new Cell(m.Row, m.Col)));
-                            sunkCells = ship?.Cells.Select(c => new CellDto(c.Row, c.Col)).ToList();
+                            int lRow = m.Row - offset.Row;
+                            int lCol = m.Col - offset.Col;
+                            var ship = fleet.Ships.FirstOrDefault(s => s.HitCells.Contains(new Cell(lRow, lCol)));
+                            sunkCells = ship?.Cells
+                                .Select(c => new CellDto(c.Row + offset.Row, c.Col + offset.Col))
+                                .ToList();
                         }
                     }
                     return new ShotResultDto(m.ShooterId, m.TargetId, m.Row, m.Col, m.Result, sunkCells);
                 }).ToList();
 
-            // Shots received by me (so my fleet board shows damage)
+            // Shots received by me (so my fleet board shows damage) — sea-absolute coords
             var shotsOnMe = state.AllMoves
                 .Where(m => m.TargetId == userId)
                 .Select(m =>
@@ -86,11 +92,16 @@ public class GameHub : Hub
                     List<CellDto>? sunkCells = null;
                     if (m.Result == "sunk")
                     {
-                        var fleet = state.Fleets.GetValueOrDefault(userId);
+                        var fleet  = state.Fleets.GetValueOrDefault(userId);
+                        var offset = state.FleetOffsets.GetValueOrDefault(userId);
                         if (fleet is not null)
                         {
-                            var ship = fleet.Ships.FirstOrDefault(s => s.HitCells.Contains(new Cell(m.Row, m.Col)));
-                            sunkCells = ship?.Cells.Select(c => new CellDto(c.Row, c.Col)).ToList();
+                            int lRow = m.Row - offset.Row;
+                            int lCol = m.Col - offset.Col;
+                            var ship = fleet.Ships.FirstOrDefault(s => s.HitCells.Contains(new Cell(lRow, lCol)));
+                            sunkCells = ship?.Cells
+                                .Select(c => new CellDto(c.Row + offset.Row, c.Col + offset.Col))
+                                .ToList();
                         }
                     }
                     return new ShotResultDto(m.ShooterId, m.TargetId, m.Row, m.Col, m.Result, sunkCells);
@@ -103,16 +114,18 @@ public class GameHub : Hub
                 .Where(id => state.Fleets.TryGetValue(id, out var f) && f.IsEliminated)
                 .ToList();
 
-            var turn = _gameState.GetCurrentTurn(activeRoomId);
+            var turn          = _gameState.GetCurrentTurn(activeRoomId);
+            var fleetPositions = _gameState.GetAllFleetPositions(activeRoomId);
 
             await Clients.Caller.SendAsync("RejoinGame", new
             {
                 roomId = activeRoomId,
-                phase = state.Phase.ToString().ToLower(),
-                moves = allRelevantMoves,
-                eliminatedPlayerIds = eliminated,
-                currentTurnPlayerId = turn?.PlayerId,
-                currentTurnUsername = turn?.Username,
+                phase  = state.Phase.ToString().ToLower(),
+                moves  = allRelevantMoves,
+                eliminatedPlayerIds  = eliminated,
+                currentTurnPlayerId  = turn?.PlayerId,
+                currentTurnUsername  = turn?.Username,
+                fleetPositions       = fleetPositions,
                 myFleet = state.Fleets.TryGetValue(userId, out var myFleet)
                     ? myFleet.Ships.Select(ship => new
                       {
@@ -367,6 +380,10 @@ public class GameHub : Hub
 
         await _hubContext.Clients.Group($"room-{roomId}").SendAsync("AllReady");
 
+        // Send initial fleet positions to all players
+        var positions = _gameState.GetAllFleetPositions(roomId);
+        await _hubContext.Clients.Group($"room-{roomId}").SendAsync("FleetPositions", positions);
+
         var turn = _gameState.GetCurrentTurn(roomId);
         if (turn is null) return;
 
@@ -376,7 +393,11 @@ public class GameHub : Hub
 
     // ── Battle phase ───────────────────────────────────────────────────────
 
-    public async Task FireShot(int targetId, int row, int col)
+    /// <summary>
+    /// Move the current player's fleet by one cell.
+    /// row/col are sea-absolute (0-49).
+    /// </summary>
+    public async Task MoveFleet(string direction)
     {
         var userId = GetUserId();
         var roomId = _onlineUsers.GetUserRoom(userId);
@@ -386,7 +407,32 @@ public class GameHub : Hub
         if (turn?.PlayerId != userId) return;
 
         _gameState.CancelTurnTimer(roomId);
-        await ProcessAndBroadcastShot(roomId, userId, targetId, row, col, useHubContext: false);
+
+        var (moved, newPos) = _gameState.MoveFleet(roomId, userId, direction);
+        if (!moved || newPos is null) return;
+
+        await Clients.Group($"room-{roomId}").SendAsync("FleetMoved", newPos);
+
+        var nextTurn = _gameState.AdvanceTurn(roomId);
+        if (nextTurn is null) return;
+
+        await Clients.Group($"room-{roomId}")
+            .SendAsync("TurnStarted", new { playerId = nextTurn.PlayerId, username = nextTurn.Username });
+        StartTurnTimer(roomId, nextTurn.PlayerId, nextTurn.Username);
+    }
+
+    /// <summary>Fire a shot at sea-absolute coordinates.</summary>
+    public async Task FireShot(int targetId, int seaRow, int seaCol)
+    {
+        var userId = GetUserId();
+        var roomId = _onlineUsers.GetUserRoom(userId);
+        if (roomId is null) return;
+
+        var turn = _gameState.GetCurrentTurn(roomId);
+        if (turn?.PlayerId != userId) return;
+
+        _gameState.CancelTurnTimer(roomId);
+        await ProcessAndBroadcastShot(roomId, userId, targetId, seaRow, seaCol, useHubContext: false);
     }
 
     public async Task SendBattleChat(string roomId, string message)
@@ -473,10 +519,28 @@ public class GameHub : Hub
             try
             {
                 await Task.Delay(15_000, cts.Token);
+
+                // Try auto-shot against in-range enemies first
                 var randomShot = _gameState.GetRandomShot(roomId, currentPlayerId);
-                if (randomShot is null) return;
-                var (targetId, r, c) = randomShot.Value;
-                await ProcessAndBroadcastShot(roomId, currentPlayerId, targetId, r, c, useHubContext: true);
+                if (randomShot is not null)
+                {
+                    var (targetId, r, c) = randomShot.Value;
+                    await ProcessAndBroadcastShot(roomId, currentPlayerId, targetId, r, c, useHubContext: true);
+                    return;
+                }
+
+                // No in-range enemies — auto-move toward nearest opponent
+                var dir      = _gameState.GetAutoMoveDirection(roomId, currentPlayerId);
+                var (moved, newPos) = _gameState.MoveFleet(roomId, currentPlayerId, dir);
+                if (moved && newPos is not null)
+                    await _hubContext.Clients.Group($"room-{roomId}").SendAsync("FleetMoved", newPos);
+
+                var nextTurn = _gameState.AdvanceTurn(roomId);
+                if (nextTurn is null) return;
+
+                await _hubContext.Clients.Group($"room-{roomId}")
+                    .SendAsync("TurnStarted", new { playerId = nextTurn.PlayerId, username = nextTurn.Username });
+                StartTurnTimer(roomId, nextTurn.PlayerId, nextTurn.Username);
             }
             catch (OperationCanceledException) { }
         });

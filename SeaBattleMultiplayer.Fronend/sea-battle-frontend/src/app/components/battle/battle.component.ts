@@ -1,198 +1,269 @@
-import { Component, inject, OnInit, OnDestroy, computed, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
-import { Subscription } from 'rxjs';
-import { AuthService } from '../../services/auth.service';
-import { SignalRService } from '../../services/signalr.service';
-import { ShipPlacement } from '../../models/player.models';
+﻿import { Component, inject, OnInit, OnDestroy, computed, signal,
+         ElementRef, ViewChild, AfterViewChecked } from "@angular/core";
+import { CommonModule } from "@angular/common";
+import { FormsModule } from "@angular/forms";
+import { Router } from "@angular/router";
+import { Subscription } from "rxjs";
+import { AuthService } from "../../services/auth.service";
+import { SignalRService } from "../../services/signalr.service";
+import { ShipPlacement, FleetMoveDirection } from "../../models/player.models";
 
-type MyCellState     = 'empty' | 'ship' | 'hit-on-me' | 'miss-on-me' | 'sunk-on-me';
-type EnemyCellState  = 'unknown' | 'miss' | 'hit' | 'sunk';
+// Sea cell visual kinds
+type CellKind =
+  | "fog"                          // outside fog radius - unknown
+  | "sea"                          // visible, empty
+  | "my-ship"                      // my ship cell
+  | "my-area"                      // my fleet area, no ship
+  | "enemy-area"                   // in-range enemy fleet cell (empty/unknown)
+  | "shot-miss" | "shot-hit" | "shot-sunk"        // shots I fired
+  | "recv-miss" | "recv-hit" | "recv-sunk";        // shots fired at me
 
 @Component({
-  selector: 'app-battle',
+  selector: "app-battle",
   standalone: true,
   imports: [CommonModule, FormsModule],
-  templateUrl: './battle.component.html',
-  styleUrl: './battle.component.scss'
+  templateUrl: "./battle.component.html",
+  styleUrl: "./battle.component.scss"
 })
-export class BattleComponent implements OnInit, OnDestroy {
+export class BattleComponent implements OnInit, OnDestroy, AfterViewChecked {
   readonly authService = inject(AuthService);
   readonly signalR     = inject(SignalRService);
   private readonly router = inject(Router);
 
-  readonly ROWS       = Array.from({ length: 10 }, (_, i) => i);
-  readonly COLS       = Array.from({ length: 10 }, (_, i) => i);
-  readonly ROW_LABELS = 'ABCDEFGHIJ';
+  @ViewChild("seaContainer") seaContainerRef?: ElementRef<HTMLElement>;
 
-  chatInput     = '';
-  autoShot      = false;
-  selectedTarget  = signal<number | null>(null);
-  activeMobileTab = signal<number | 'me'>('me');
-  myBoardCellSize = signal(16); // px — default small, user can zoom
+  // ── Constants ─────────────────────────────────────────────────────────────
+  readonly SEA        = 50;
+  readonly CELL_PX    = 11;    // px per cell
+  readonly FOG_RADIUS = 12;    // Euclidean fog radius in sea cells
+  readonly RANGE      = 2;     // Chebyshev gap to allow shooting
 
-  readonly MIN_CELL = 10;
-  readonly MAX_CELL = 36;
+  readonly SEA_ROWS   = Array.from({ length: 50 }, (_, i) => i);
+  readonly SEA_COLS   = Array.from({ length: 50 }, (_, i) => i);
 
-  zoomMyBoard(delta: number): void {
-    this.myBoardCellSize.update(v => Math.min(this.MAX_CELL, Math.max(this.MIN_CELL, v + delta)));
-  }
+  // ── UI state ──────────────────────────────────────────────────────────────
+  chatInput    = "";
+  autoShot     = false;
+  private needsScroll = true;
 
-  setMobileTab(tab: number | 'me'): void {
-    this.activeMobileTab.set(tab);
-    if (tab !== 'me') this.selectedTarget.set(tab);
-  }
-
-  // 15-second turn timer (UI only — enforcement is on backend)
+  // ── Turn timer ────────────────────────────────────────────────────────────
   turnTimeLeft = signal(15);
   private countdownId: ReturnType<typeof setInterval> | null = null;
   private sub = new Subscription();
 
-  // ── Computed helpers ───────────────────────────────────────────────────
-
+  // ── Core computed ─────────────────────────────────────────────────────────
   readonly myId = computed(() => this.authService.userId() ?? -1);
 
-  /** Other players still alive (lobby members minus me minus eliminated) */
+  readonly myOffset = computed(() => {
+    return this.signalR.fleetPositions().get(this.myId()) ?? { offsetRow: 0, offsetCol: 0 };
+  });
+
   readonly opponents = computed(() => {
-    const myId       = this.myId();
-    const eliminated = this.signalR.eliminatedPlayerIds();
-    return this.signalR.lobbyMembers().filter(m => m.id !== myId && !eliminated.has(m.id));
+    const myId = this.myId();
+    const elim = this.signalR.eliminatedPlayerIds();
+    return this.signalR.lobbyMembers().filter(m => m.id !== myId && !elim.has(m.id));
+  });
+
+  readonly inRangeEnemies = computed(() => {
+    const myPos     = this.myOffset();
+    const positions = this.signalR.fleetPositions();
+    return this.opponents().filter(opp => {
+      const ep = positions.get(opp.id);
+      if (!ep) return false;
+      const rGap = Math.max(0, Math.max(
+        myPos.offsetRow - (ep.offsetRow + 9),
+        ep.offsetRow    - (myPos.offsetRow + 9)
+      ));
+      const cGap = Math.max(0, Math.max(
+        myPos.offsetCol - (ep.offsetCol + 9),
+        ep.offsetCol    - (myPos.offsetCol + 9)
+      ));
+      return Math.max(rGap, cGap) <= this.RANGE;
+    });
   });
 
   readonly isMyTurn = computed(() =>
     this.signalR.currentTurnPlayerId() === this.myId()
   );
 
-  // ── My board: ships + shots received ──────────────────────────────────
+  readonly canShoot = computed(() =>
+    this.isMyTurn() && this.inRangeEnemies().length > 0
+  );
 
-  private readonly myOccupied = computed(() => {
-    const map = new Map<number, true>();
-    for (const ship of this.signalR.myFleet()) {
+  // ── Sea grid (2D array of CellKind) ───────────────────────────────────────
+  readonly seaGrid = computed((): CellKind[][] => {
+    const SEA      = this.SEA;
+    const myId     = this.myId();
+    const myPos    = this.myOffset();
+    const shots    = this.signalR.shotResults();
+    const ships    = this.signalR.myFleet();
+    const positions = this.signalR.fleetPositions();
+    const inRange  = this.inRangeEnemies();
+    const fogR     = this.FOG_RADIUS;
+
+    // My ship cells (sea-absolute key = row*SEA+col)
+    const myShipSet = new Set<number>();
+    for (const ship of ships) {
       for (let i = 0; i < ship.size; i++) {
-        const r = ship.horizontal ? ship.row     : ship.row + i;
-        const c = ship.horizontal ? ship.col + i : ship.col;
-        map.set(r * 10 + c, true);
+        const r = (ship.horizontal ? ship.row     : ship.row + i) + myPos.offsetRow;
+        const c = (ship.horizontal ? ship.col + i : ship.col)     + myPos.offsetCol;
+        myShipSet.add(r * SEA + c);
       }
     }
-    return map;
-  });
 
-  /** Cells of fully-sunk ships on my board */
-  private readonly mySunkCells = computed(() => {
-    const sunk = new Set<number>();
-    const shotsOnMe = this.signalR.shotResults().filter(s => s.targetId === this.myId());
-    for (const shot of shotsOnMe) {
-      if (shot.sunkCells) {
-        for (const c of shot.sunkCells) sunk.add(c.row * 10 + c.col);
-      }
-    }
-    return sunk;
-  });
-
-  readonly myBoard = computed((): MyCellState[][] => {
-    const occupied  = this.myOccupied();
-    const sunkCells = this.mySunkCells();
-    const shotsOnMe = this.signalR.shotResults().filter(s => s.targetId === this.myId());
-
-    return this.ROWS.map(r =>
-      this.COLS.map(c => {
-        const key  = r * 10 + c;
-        const shot = shotsOnMe.find(s => s.row === r && s.col === c);
-        if (shot) {
-          if (sunkCells.has(key)) return 'sunk-on-me';
-          return shot.result === 'miss' ? 'miss-on-me' : 'hit-on-me';
+    // Shot results: map sea-key -> CellKind
+    const shotMap = new Map<number, CellKind>();
+    for (const shot of shots) {
+      const baseKey = shot.row * SEA + shot.col;
+      if (shot.shooterId === myId) {
+        const k: CellKind = shot.result === "sunk" ? "shot-sunk"
+                         : shot.result === "hit"  ? "shot-hit" : "shot-miss";
+        shotMap.set(baseKey, k);
+        if (shot.sunkCells) {
+          for (const sc of shot.sunkCells) shotMap.set(sc.row * SEA + sc.col, "shot-sunk");
         }
-        if (occupied.has(key)) return 'ship';
-        return 'empty';
+      } else if (shot.targetId === myId) {
+        const k: CellKind = shot.result === "sunk" ? "recv-sunk"
+                         : shot.result === "hit"  ? "recv-hit" : "recv-miss";
+        shotMap.set(baseKey, k);
+        if (shot.sunkCells) {
+          for (const sc of shot.sunkCells) shotMap.set(sc.row * SEA + sc.col, "recv-sunk");
+        }
+      }
+    }
+
+    // Enemy fleet areas visible when in range
+    const enemyAreaSet = new Set<number>();
+    for (const opp of inRange) {
+      const ep = positions.get(opp.id);
+      if (!ep) continue;
+      for (let r = ep.offsetRow; r < ep.offsetRow + 10; r++)
+        for (let c = ep.offsetCol; c < ep.offsetCol + 10; c++)
+          enemyAreaSet.add(r * SEA + c);
+    }
+
+    const centerR = myPos.offsetRow + 4.5;
+    const centerC = myPos.offsetCol + 4.5;
+
+    return Array.from({ length: SEA }, (_, r) =>
+      Array.from({ length: SEA }, (_, c): CellKind => {
+        const key  = r * SEA + c;
+
+        // Shot results are always shown (even outside fog)
+        const shotKind = shotMap.get(key);
+        if (shotKind) return shotKind;
+
+        // Fog check
+        const dist = Math.sqrt((r - centerR) ** 2 + (c - centerC) ** 2);
+        if (dist > fogR) return "fog";
+
+        if (myShipSet.has(key)) return "my-ship";
+        if (r >= myPos.offsetRow && r < myPos.offsetRow + 10 &&
+            c >= myPos.offsetCol && c < myPos.offsetCol + 10)  return "my-area";
+        if (enemyAreaSet.has(key)) return "enemy-area";
+        return "sea";
       })
     );
   });
 
-  // ── Enemy boards: one computed map for all opponents ────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
-  readonly allEnemyBoards = computed((): Map<number, EnemyCellState[][]> => {
-    const myId     = this.myId();
-    const allShots = this.signalR.shotResults();
-    const result   = new Map<number, EnemyCellState[][]>();
-
-    for (const member of this.signalR.lobbyMembers()) {
-      if (member.id === myId) continue;
-
-      const myShots    = allShots.filter(s => s.shooterId === myId && s.targetId === member.id);
-      const myShotKeys = new Set<number>(myShots.map(s => s.row * 10 + s.col));
-      const sunkKeys   = new Set<number>();
-
-      for (const shot of myShots) {
-        if (shot.sunkCells) {
-          for (const c of shot.sunkCells) {
-            const key = c.row * 10 + c.col;
-            if (myShotKeys.has(key)) sunkKeys.add(key);
-          }
-        }
-      }
-
-      const board = this.ROWS.map(r =>
-        this.COLS.map(c => {
-          const key = r * 10 + c;
-          if (sunkKeys.has(key)) return 'sunk' as EnemyCellState;
-          const shot = myShots.find(s => s.row === r && s.col === c);
-          if (!shot) return 'unknown' as EnemyCellState;
-          return shot.result === 'miss' ? 'miss' as EnemyCellState : 'hit' as EnemyCellState;
-        })
-      );
-      result.set(member.id, board);
+  /** Returns the targetId if (r,c) is inside an in-range enemy fleet area. */
+  getCellTarget(r: number, c: number): number | null {
+    const positions = this.signalR.fleetPositions();
+    for (const opp of this.inRangeEnemies()) {
+      const ep = positions.get(opp.id);
+      if (!ep) continue;
+      if (r >= ep.offsetRow && r < ep.offsetRow + 10 &&
+          c >= ep.offsetCol && c < ep.offsetCol + 10)
+        return opp.id;
     }
-    return result;
-  });
-
-  getBoardFor(opponentId: number): EnemyCellState[][] {
-    return this.allEnemyBoards().get(opponentId) ??
-      this.ROWS.map(() => this.COLS.map(() => 'unknown' as EnemyCellState));
+    return null;
   }
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────
+  // ── Actions ───────────────────────────────────────────────────────────────
+
+  onCellClick(r: number, c: number): void {
+    if (!this.isMyTurn()) return;
+    const targetId = this.getCellTarget(r, c);
+    if (targetId === null) return;
+    if (this.seaGrid()[r][c] !== "enemy-area") return; // already shot
+    this.signalR.fireShot(targetId, r, c);
+  }
+
+  moveFleet(dir: FleetMoveDirection): void {
+    if (!this.isMyTurn()) return;
+    this.signalR.moveFleet(dir);
+  }
+
+  sendChat(): void {
+    const msg = this.chatInput.trim();
+    if (!msg) return;
+    this.signalR.sendBattleChat(msg);
+    this.chatInput = "";
+  }
+
+  leaveGame(): void {
+    this.signalR.leaveLobby();
+    this.router.navigate(["/home"]);
+  }
+
+  opponentName(id: number): string {
+    return this.signalR.lobbyMembers().find(m => m.id === id)?.username ?? `Player ${id}`;
+  }
+
+  // ── Auto-shot ─────────────────────────────────────────────────────────────
+
+  private fireAutoShot(): void {
+    const inRange = this.inRangeEnemies();
+    const grid    = this.seaGrid();
+    const positions = this.signalR.fleetPositions();
+
+    if (inRange.length > 0) {
+      const target = inRange[Math.floor(Math.random() * inRange.length)];
+      const ep = positions.get(target.id);
+      if (!ep) return;
+      const candidates: [number, number][] = [];
+      for (let r = ep.offsetRow; r < ep.offsetRow + 10; r++)
+        for (let c = ep.offsetCol; c < ep.offsetCol + 10; c++)
+          if (grid[r]?.[c] === "enemy-area") candidates.push([r, c]);
+      if (candidates.length > 0) {
+        const [r, c] = candidates[Math.floor(Math.random() * candidates.length)];
+        this.signalR.fireShot(target.id, r, c);
+      }
+    } else {
+      // No in-range enemy — move toward nearest
+      const dirs: FleetMoveDirection[] = ["up", "down", "left", "right"];
+      this.signalR.moveFleet(dirs[Math.floor(Math.random() * dirs.length)]);
+    }
+  }
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   ngOnInit(): void {
     if (!this.signalR.lobbyRoomId()) {
-      this.router.navigate(['/home']);
+      this.router.navigate(["/home"]);
       return;
     }
 
-    // Auto-select first opponent
-    const opps = this.opponents();
-    if (opps.length > 0) this.selectedTarget.set(opps[0].id);
-
-    // Subscribe to turn changes
-    this.sub.add(
-      // We watch the signal via effect-like subscription using interval-free polling
-      // Instead, react to TurnStarted via currentTurnPlayerId signal changes
-      // Angular reactive: component re-evaluates computed on signal change
-      // We use a raw subscription to trigger the timer restart when it's my turn
-      // Use a simple approach: watch the hub directly via a subject — it's already set.
-      // The cleanest way is to listen for `TurnStarted` effect in ngOnInit.
-      // We'll do it by subscribing to a synthetic observable from the signal.
-      this.watchTurnChanges()
-    );
-  }
-
-  private watchTurnChanges(): Subscription {
-    // Re-start the countdown whenever currentTurnPlayerId changes.
-    // We use a micro-polling approach via setInterval, but signal-based.
     let lastTurnId: number | null = null;
     const id = setInterval(() => {
       const current = this.signalR.currentTurnPlayerId();
       if (current !== lastTurnId) {
         lastTurnId = current;
         this.restartCountdown();
-
-        // Auto-shot: fire immediately when it becomes my turn
-        if (this.autoShot && current === this.myId()) {
-          this.fireAutoShot();
-        }
+        this.needsScroll = true;
+        if (this.autoShot && current === this.myId()) this.fireAutoShot();
       }
     }, 100);
-    return new Subscription(() => clearInterval(id));
+    this.sub.add(new Subscription(() => clearInterval(id)));
+  }
+
+  ngAfterViewChecked(): void {
+    if (this.needsScroll) {
+      this.scrollToFleet();
+      this.needsScroll = false;
+    }
   }
 
   ngOnDestroy(): void {
@@ -200,34 +271,19 @@ export class BattleComponent implements OnInit, OnDestroy {
     this.clearCountdown();
   }
 
-  // ── Actions ────────────────────────────────────────────────────────────
+  // ── Auto-scroll to keep my fleet visible ──────────────────────────────────
 
-  selectTarget(id: number): void {
-    this.selectedTarget.set(id);
+  scrollToFleet(): void {
+    const el = this.seaContainerRef?.nativeElement;
+    if (!el) return;
+    const { offsetRow, offsetCol } = this.myOffset();
+    const centerPx = (offsetRow + 4.5) * this.CELL_PX;
+    const centerCpx = (offsetCol + 4.5) * this.CELL_PX;
+    el.scrollTop  = centerPx  - el.clientHeight / 2;
+    el.scrollLeft = centerCpx - el.clientWidth  / 2;
   }
 
-  onEnemyCellClick(targetId: number, r: number, c: number): void {
-    if (!this.isMyTurn()) return;
-    if (this.getBoardFor(targetId)[r][c] !== 'unknown') return;
-    this.selectedTarget.set(targetId);
-    this.signalR.fireShot(targetId, r, c);
-  }
-
-  private fireAutoShot(): void {
-    const targetId = this.selectedTarget() ?? this.opponents()[0]?.id;
-    if (targetId === undefined) return;
-    const board = this.signalR.shotResults()
-      .filter(s => s.shooterId === this.myId() && s.targetId === targetId)
-      .map(s => s.row * 10 + s.col);
-    const fired = new Set(board);
-    const cells = [];
-    for (let r = 0; r < 10; r++)
-      for (let c = 0; c < 10; c++)
-        if (!fired.has(r * 10 + c)) cells.push({ r, c });
-    if (cells.length === 0) return;
-    const pick = cells[Math.floor(Math.random() * cells.length)];
-    this.signalR.fireShot(targetId, pick.r, pick.c);
-  }
+  // ── Turn countdown ────────────────────────────────────────────────────────
 
   private restartCountdown(): void {
     this.clearCountdown();
@@ -243,25 +299,4 @@ export class BattleComponent implements OnInit, OnDestroy {
       this.countdownId = null;
     }
   }
-
-  sendChat(): void {
-    const msg = this.chatInput.trim();
-    if (!msg) return;
-    this.signalR.sendBattleChat(msg);
-    this.chatInput = '';
-  }
-
-  leaveGame(): void {
-    this.signalR.leaveLobby();
-    this.router.navigate(['/home']);
-  }
-
-  cellLabel(r: number, c: number): string {
-    return `${this.ROW_LABELS[r]}${c + 1}`;
-  }
-
-  opponentName(id: number): string {
-    return this.signalR.lobbyMembers().find(m => m.id === id)?.username ?? `Player ${id}`;
-  }
 }
-

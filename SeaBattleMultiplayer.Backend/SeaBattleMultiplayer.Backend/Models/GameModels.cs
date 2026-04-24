@@ -41,18 +41,26 @@ public class PlayerFleet
 
 public class GameRoomState
 {
-    /// <summary>DB primary key вЂ” set once BeginBattle persists the record.</summary>
+    // -- Shared sea dimensions -------------------------------------------------
+    public const int SeaSize   = 50;
+    public const int FleetArea = 10;
+    public const int MaxOffset = SeaSize - FleetArea; // 40
+
+    /// <summary>DB primary key - set once BeginBattle persists the record.</summary>
     public int DbGameId { get; set; }
 
     public GamePhase Phase { get; set; } = GamePhase.Placement;
 
-    public Dictionary<int, string> PlayerNames { get; } = new();
-    public Dictionary<int, PlayerFleet> Fleets { get; } = new();
-    public List<int> TurnOrder { get; set; } = new();
-    public int TurnIndex { get; set; } = 0;
-    public CancellationTokenSource? TurnTimerCts { get; set; }
+    public Dictionary<int, string>      PlayerNames  { get; } = new();
+    public Dictionary<int, PlayerFleet> Fleets       { get; } = new();
+    public List<int>                    TurnOrder    { get; set; } = new();
+    public int                          TurnIndex    { get; set; } = 0;
+    public CancellationTokenSource?     TurnTimerCts { get; set; }
 
-    // (shooterId, targetId) в†’ cells already fired
+    /// <summary>Sea-absolute top-left offset (row, col) of each player's 10x10 fleet area.</summary>
+    public Dictionary<int, (int Row, int Col)> FleetOffsets { get; } = new();
+
+    // (shooterId, targetId) -> sea-absolute cells already fired
     private readonly Dictionary<(int, int), HashSet<Cell>> _firedCells = new();
 
     public int CurrentPlayerId =>
@@ -72,6 +80,6 @@ public class GameRoomState
         return set;
     }
 
-    /// <summary>Returns all moves ever recorded, for reconnect restore.</summary>
+    /// <summary>All shot moves recorded (sea-absolute coords), for reconnect restore.</summary>
     public List<(int ShooterId, int TargetId, int Row, int Col, string Result)> AllMoves { get; } = new();
 }

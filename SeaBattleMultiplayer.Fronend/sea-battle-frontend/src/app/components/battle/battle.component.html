@@ -1,125 +1,90 @@
-<div class="battle-page">
+﻿<div class="battle-page">
 
-  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
   <div class="battle-header">
     <h1>⚓ Sea Battle</h1>
     <div class="room-info">Room <span class="room-id">#{{ signalR.lobbyRoomId() }}</span></div>
 
-    <!-- Turn indicator -->
     @if (signalR.battleWinnerId()) {
-      <div class="turn-badge winner">
-        🏆 {{ signalR.battleWinnerUsername() }} wins!
-      </div>
+      <div class="turn-badge winner">🏆 {{ signalR.battleWinnerUsername() }} wins!</div>
     } @else {
       <div class="turn-badge" [class.my-turn]="isMyTurn()">
-        @if (isMyTurn()) {
-          Your turn
-        } @else {
-          {{ signalR.currentTurnUsername() }}'s turn
-        }
-        <span class="turn-timer" [class.urgent]="turnTimeLeft() <= 5">
-          {{ turnTimeLeft() }}s
-        </span>
+        @if (isMyTurn()) { Your turn } @else { {{ signalR.currentTurnUsername() }}&apos;s turn }
+        <span class="turn-timer" [class.urgent]="turnTimeLeft() <= 5">{{ turnTimeLeft() }}s</span>
       </div>
     }
 
     <label class="auto-checkbox">
-      <input type="checkbox" [(ngModel)]="autoShot" />
-      Auto-shot
+      <input type="checkbox" [(ngModel)]="autoShot" /> Auto
     </label>
 
+    <button class="btn btn-center" (click)="scrollToFleet()">⊕ Center</button>
     <button class="btn btn-leave" (click)="leaveGame()">Leave</button>
   </div>
 
-  <!-- ── Mobile tab navigation ──────────────────────────────────────── -->
-  <div class="mobile-tabs">
-    <button class="tab-btn" [class.active]="activeMobileTab() === 'me'" (click)="setMobileTab('me')">
-      My Fleet
-    </button>
-    @for (opp of opponents(); track opp.id) {
-      <button class="tab-btn" [class.active]="activeMobileTab() === opp.id" (click)="setMobileTab(opp.id)">
-        {{ opp.username }}
-      </button>
+  <!-- ── Status bar ───────────────────────────────────────────────────────── -->
+  <div class="status-bar">
+    @if (inRangeEnemies().length > 0) {
+      <span class="status-combat">
+        ⚔ In range:
+        @for (e of inRangeEnemies(); track e.id) {
+          <span class="enemy-chip">{{ e.username }}</span>
+        }
+        @if (isMyTurn()) { — click enemy grid to fire }
+      </span>
+    } @else {
+      <span class="status-nav">
+        🧭 Move your fleet to find opponents
+        @if (opponents().length > 0) {
+          ({{ opponents().length }} remaining)
+        }
+      </span>
     }
   </div>
 
-  <!-- ── Main layout ─────────────────────────────────────────────────── -->
-  <div class="battle-layout">
+  <!-- ── Main area ────────────────────────────────────────────────────────── -->
+  <div class="battle-main">
 
-    <!-- MY BOARD -->
-    <section class="board-section" [class.mobile-hidden]="activeMobileTab() !== 'me'">
-      <div class="board-title-row">
-        <h2 class="board-title">My Fleet</h2>
-        <div class="zoom-controls">
-          <button class="zoom-btn" (click)="zoomMyBoard(-2)" [disabled]="myBoardCellSize() <= MIN_CELL">−</button>
-          <button class="zoom-btn" (click)="zoomMyBoard(2)"  [disabled]="myBoardCellSize() >= MAX_CELL">+</button>
-        </div>
+    <!-- Move controls -->
+    <div class="move-controls" [class.active]="isMyTurn()">
+      <div class="move-row">
+        <button class="move-btn" (click)="moveFleet('up')"    [disabled]="!isMyTurn()">▲</button>
       </div>
-      <div class="grid-area my-board" [style.--cell-me.px]="myBoardCellSize()">
-        <div class="grid-col-labels">
-          <span></span>
-          @for (c of COLS; track c) { <span>{{ c + 1 }}</span> }
-        </div>
-        @for (r of ROWS; track r) {
-          <div class="grid-row">
-            <span class="row-label">{{ ROW_LABELS[r] }}</span>
-            @for (c of COLS; track c) {
-              <div class="grid-cell"
-                [class.cell-ship]="myBoard()[r][c] === 'ship'"
-                [class.cell-hit-on-me]="myBoard()[r][c] === 'hit-on-me'"
-                [class.cell-sunk-on-me]="myBoard()[r][c] === 'sunk-on-me'"
-                [class.cell-miss-on-me]="myBoard()[r][c] === 'miss-on-me'"
-              ></div>
-            }
-          </div>
+      <div class="move-row">
+        <button class="move-btn" (click)="moveFleet('left')"  [disabled]="!isMyTurn()">◄</button>
+        <button class="move-btn move-center-btn"              [disabled]="true">⚓</button>
+        <button class="move-btn" (click)="moveFleet('right')" [disabled]="!isMyTurn()">►</button>
+      </div>
+      <div class="move-row">
+        <button class="move-btn" (click)="moveFleet('down')"  [disabled]="!isMyTurn()">▼</button>
+      </div>
+      <div class="move-hint">
+        @if (canShoot()) { click enemy<br>to fire } @else { move to<br>engage }
+      </div>
+    </div>
+
+    <!-- Sea grid -->
+    <div class="sea-wrapper" #seaContainer>
+      <div class="sea-grid" [style.--cell.px]="CELL_PX">
+        @for (row of seaGrid(); track $index; let r = $index) {
+          @for (cell of row; track $index; let c = $index) {
+            <div
+              [class]="'sc ' + cell"
+              [class.clickable]="isMyTurn() && cell === 'enemy-area'"
+              (click)="onCellClick(r, c)"
+            ></div>
+          }
         }
       </div>
-    </section>
-
-    <!-- ENEMY BOARDS (one per opponent, all visible on desktop) -->
-    @for (opp of opponents(); track opp.id) {
-      <section class="board-section enemy-section"
-        [class.mobile-hidden]="activeMobileTab() !== opp.id"
-        [class.selected-target]="selectedTarget() === opp.id"
-        (click)="selectTarget(opp.id)">
-        <h2 class="board-title">{{ opp.username }}</h2>
-        <div class="grid-area" [class.active-turn]="isMyTurn() && selectedTarget() === opp.id">
-          <div class="grid-col-labels">
-            <span></span>
-            @for (c of COLS; track c) { <span>{{ c + 1 }}</span> }
-          </div>
-          @for (r of ROWS; track r) {
-            <div class="grid-row">
-              <span class="row-label">{{ ROW_LABELS[r] }}</span>
-              @for (c of COLS; track c) {
-                <div class="grid-cell enemy-cell"
-                  [class.cell-unknown]="getBoardFor(opp.id)[r][c] === 'unknown'"
-                  [class.cell-miss]="getBoardFor(opp.id)[r][c] === 'miss'"
-                  [class.cell-hit]="getBoardFor(opp.id)[r][c] === 'hit'"
-                  [class.cell-sunk]="getBoardFor(opp.id)[r][c] === 'sunk'"
-                  [class.clickable]="isMyTurn() && getBoardFor(opp.id)[r][c] === 'unknown'"
-                  (click)="onEnemyCellClick(opp.id, r, c); $event.stopPropagation()"
-                ></div>
-              }
-            </div>
-          }
-        </div>
-      </section>
-    }
-
-    @if (opponents().length === 0) {
-      <div class="no-opponents-msg">No opponents yet</div>
-    }
+    </div>
 
   </div>
 
-  <!-- ── Chat ────────────────────────────────────────────────────────── -->
+  <!-- ── Chat ─────────────────────────────────────────────────────────────── -->
   <div class="chat-bar">
     <div class="chat-messages">
       @for (msg of signalR.battleChatMessages(); track $index) {
-        <span class="chat-msg">
-          <b>{{ msg.senderUsername }}:</b> {{ msg.text }}
-        </span>
+        <span class="chat-msg"><b>{{ msg.senderUsername }}:</b> {{ msg.text }}</span>
       }
     </div>
     <div class="chat-input-row">

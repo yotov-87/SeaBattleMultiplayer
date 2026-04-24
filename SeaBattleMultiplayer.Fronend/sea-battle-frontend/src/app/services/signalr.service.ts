@@ -4,7 +4,7 @@ import * as signalR from '@microsoft/signalr';
 import { Subject, firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
-import { GameInvite, LobbyMember, ChatMessage, BattleShotResult, ShipPlacement } from '../models/player.models';
+import { GameInvite, LobbyMember, ChatMessage, BattleShotResult, ShipPlacement, FleetPosition } from '../models/player.models';
 
 @Injectable({ providedIn: 'root' })
 export class SignalRService implements OnDestroy {
@@ -40,6 +40,7 @@ export class SignalRService implements OnDestroy {
   readonly battleWinnerUsername = signal<string | null>(null);
   readonly battleChatMessages = signal<ChatMessage[]>([]);
 
+  readonly fleetPositions = signal<Map<number, { offsetRow: number; offsetCol: number }>>(new Map());
   // в”Ђв”Ђ Connection в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   startConnection(): Promise<void> {
@@ -97,9 +98,9 @@ export class SignalRService implements OnDestroy {
       eliminatedPlayerIds: number[];
       currentTurnPlayerId: number | null;
       currentTurnUsername: string | null;
+      fleetPositions: FleetPosition[] | null;
       myFleet: ShipPlacement[] | null;
     }) => {
-      // Restore all signals so the battle/placement component can render correctly
       this.lobbyRoomId.set(data.roomId);
       this.isHost.set(false);
       if (data.myFleet) this.myFleet.set(data.myFleet);
@@ -109,12 +110,13 @@ export class SignalRService implements OnDestroy {
       this.currentTurnUsername.set(data.currentTurnUsername ?? '');
       this.battleWinnerId.set(null);
       this.battleWinnerUsername.set(null);
-      // Navigate to the appropriate phase
-      if (data.phase === 'battle') {
-        this.router.navigate(['/battle']);
-      } else if (data.phase === 'placement') {
-        this.router.navigate(['/placement']);
+      if (data.fleetPositions) {
+        const map = new Map<number, { offsetRow: number; offsetCol: number }>();
+        for (const p of data.fleetPositions) map.set(p.playerId, { offsetRow: p.offsetRow, offsetCol: p.offsetCol });
+        this.fleetPositions.set(map);
       }
+      if (data.phase === 'battle')     this.router.navigate(['/battle']);
+      else if (data.phase === 'placement') this.router.navigate(['/placement']);
     });
 
     this.hub.on('LobbyState', (members: LobbyMember[]) => {
@@ -158,7 +160,23 @@ export class SignalRService implements OnDestroy {
       this.battleWinnerId.set(null);
       this.battleWinnerUsername.set(null);
       this.battleChatMessages.set([]);
+      this.fleetPositions.set(new Map());
       this.allReady$.next();
+    });
+
+    // Battle — fleet positions
+    this.hub.on('FleetPositions', (positions: FleetPosition[]) => {
+      const map = new Map<number, { offsetRow: number; offsetCol: number }>();
+      for (const p of positions) map.set(p.playerId, { offsetRow: p.offsetRow, offsetCol: p.offsetCol });
+      this.fleetPositions.set(map);
+    });
+
+    this.hub.on('FleetMoved', (pos: FleetPosition) => {
+      this.fleetPositions.update(m => {
+        const next = new Map(m);
+        next.set(pos.playerId, { offsetRow: pos.offsetRow, offsetCol: pos.offsetCol });
+        return next;
+      });
     });
 
     // Battle events
@@ -211,6 +229,7 @@ export class SignalRService implements OnDestroy {
     this.eliminatedPlayerIds.set(new Set());
     this.battleWinnerId.set(null);
     this.battleWinnerUsername.set(null);
+    this.fleetPositions.set(new Map());
   }
 
   ngOnDestroy(): void {
@@ -269,6 +288,7 @@ export class SignalRService implements OnDestroy {
     this.eliminatedPlayerIds.set(new Set());
     this.battleWinnerId.set(null);
     this.battleWinnerUsername.set(null);
+    this.fleetPositions.set(new Map());
   }
 
   startGame(): void {
@@ -283,8 +303,12 @@ export class SignalRService implements OnDestroy {
 
   // в”Ђв”Ђ Battle в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
-  fireShot(targetId: number, row: number, col: number): void {
-    this.hub?.invoke('FireShot', targetId, row, col);
+  fireShot(targetId: number, seaRow: number, seaCol: number): void {
+    this.hub?.invoke('FireShot', targetId, seaRow, seaCol);
+  }
+
+  moveFleet(direction: 'up' | 'down' | 'left' | 'right'): void {
+    this.hub?.invoke('MoveFleet', direction);
   }
 
   sendBattleChat(message: string): void {
